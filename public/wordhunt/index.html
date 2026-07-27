@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Classroom Word Hunt</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">CLASSROOM INTERACTIVE GAME</p>
+        <h1 id="puzzle-title">Word Hunt</h1>
+        <p id="puzzle-subtitle">Load an INI puzzle file to begin.</p>
+        <p id="puzzle-file" class="puzzle-file" hidden></p>
+      </div>
+      <div class="header-actions teacher-control">
+        <button id="load-button" class="secondary">Load puzzle</button>
+        <input id="file-input" type="file" accept=".ini,text/plain" hidden>
+        <button id="classroom-mode-button">Start classroom mode</button>
+      </div>
+    </header>
+
+    <section id="welcome-panel" class="welcome-panel">
+      <div class="welcome-icon" aria-hidden="true">⌕</div>
+      <h2>Ready for a Word Hunt?</h2>
+      <p>Select one of the included <code>.ini</code> files, or create your own using the documented format.</p>
+      <button id="welcome-load-button">Load puzzle</button>
+      <p class="offline-note">Works offline in any modern desktop browser.</p>
+    </section>
+
+    <section id="game-panel" class="game-layout" hidden>
+      <section class="game-stage" aria-label="Word Hunt puzzle">
+        <div class="scorebar">
+          <div><span class="stat-label">Found</span><strong id="found-count">0 / 0</strong></div>
+          <div><span class="stat-label">Score</span><strong id="score">0</strong></div>
+        </div>
+        <div id="grid-wrap" class="grid-wrap">
+          <div id="word-grid" class="word-grid" aria-label="Letter grid"></div>
+        </div>
+        <div class="answer-area teacher-control">
+          <label for="guess-input">Guess a word</label>
+          <div class="answer-row">
+            <input id="guess-input" type="text" autocomplete="off" placeholder="Enter guessed word">
+            <button id="check-button">Check word</button>
+          </div>
+          <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+        </div>
+        <div class="game-actions teacher-control">
+          <button id="hint-button" class="secondary">Hint</button>
+          <button id="reveal-button" class="secondary">Reveal answer</button>
+          <button id="same-grid-button" class="secondary">Play again: same grid</button>
+          <button id="new-grid-button" class="secondary">Play again: new grid</button>
+        </div>
+      </section>
+
+      <aside class="progress-panel">
+        <h2>Words to find</h2>
+        <ol id="word-list" class="word-list"></ol>
+        <p class="legend"><span class="found-dot"></span> Found by students <span class="revealed-dot"></span> Revealed</p>
+      </aside>
+    </section>
+  </main>
+
+  <dialog id="reveal-dialog">
+    <form method="dialog">
+      <h2>Reveal answer</h2>
+      <p>Select an unfound word. It will be highlighted but score no points.</p>
+      <select id="reveal-select" aria-label="Word to reveal"></select>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary">Cancel</button>
+        <button id="confirm-reveal-button" value="default">Reveal</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="completion-dialog">
+    <form method="dialog">
+      <div class="completion-mark" aria-hidden="true">🎉</div>
+      <h2>Word Hunt complete!</h2>
+      <p id="completion-summary"></p>
+      <div class="dialog-actions">
+        <button id="completion-same-button" value="default" class="secondary">Same grid</button>
+        <button id="completion-new-button" value="default">New grid</button>
+        <button id="completion-load-button" value="default">Load another puzzle</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="question-dialog" class="question-dialog">
+    <form method="dialog">
+      <p class="eyebrow">CLASS DISCUSSION</p>
+      <p id="question-success-message" class="question-success-message"></p>
+      <h2 id="follow-up-question"></h2>
+      <p id="follow-up-answer" class="follow-up-answer" hidden></p>
+      <div class="dialog-actions">
+        <button id="show-answer-button" type="button" class="secondary">Show answer</button>
+        <button id="continue-word-hunt-button" value="continue">Continue word hunt</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

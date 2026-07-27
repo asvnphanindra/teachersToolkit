@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Teacher's Toolkit — practical browser-based tools for educators.">
+  <title>Teacher's Toolkit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/shared/toolkit.css">
+</head>
+<body class="page-home">
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="site-logo" href="./">Teacher's Toolkit</a>
+      <nav class="site-nav" aria-label="Main">
+        <a href="#tools">Tools</a>
+        <a href="about.html">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="home-main">
+    <section class="home-intro" aria-labelledby="hero-heading">
+      <div class="home-intro-text">
+        <p class="home-tagline" id="tagline">Simple tools for smarter planning</p>
+        <h1 id="hero-heading">Plan with confidence</h1>
+        <p class="home-subtext" id="subtext">Manual timetable checks for room and faculty clashes take hours. This toolkit helps you verify schedules instantly so you can focus on teaching.</p>
+        <p class="home-creator" id="creator-line">Built by Phanindra, Educator &amp; Developer</p>
+        <ul class="home-pillars" id="pillars">
+          <li><span class="pillar-icon" aria-hidden="true">⏱</span><span>Save time on repetitive verification</span></li>
+          <li><span class="pillar-icon" aria-hidden="true">✓</span><span>Catch scheduling errors early</span></li>
+          <li><span class="pillar-icon" aria-hidden="true">🌐</span><span>Free, browser-based — no install</span></li>
+        </ul>
+      </div>
+      <section class="home-tools" id="tools" aria-labelledby="tools-heading">
+        <h2 id="tools-heading">Available tools</h2>
+        <div class="tool-cards tool-cards--grid" id="tool-cards"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      &copy; <span id="year"></span> Teacher's Toolkit &middot;
+      Built by <a href="about.html" id="creator-link">Phanindra</a> &middot;
+      Data stays in your browser
+    </p>
+  </footer>
+
+  <script type="module">
+    import { tools, brand } from "./assets/shared/tools-manifest.js";
+
+    document.getElementById("tagline").textContent = brand.tagline;
+    document.getElementById("hero-heading").textContent = brand.headline;
+    document.getElementById("subtext").textContent = brand.subtext;
+    document.getElementById("creator-line").textContent =
+      `Built by ${brand.creatorName}, ${brand.creatorTitle}`;
+    document.getElementById("creator-link").textContent = brand.creatorName;
+
+    const container = document.getElementById("tool-cards");
+    tools.forEach((tool) => {
+      const isLive = tool.status === "live";
+      const inner = `
+        <span class="badge ${isLive ? "badge--live" : "badge--soon"}">${isLive ? "Available" : "Coming soon"}</span>
+        <span class="tool-tile-icon" aria-hidden="true">${tool.icon || "📦"}</span>
+        <h3>${tool.name}</h3>
+        <p>${tool.description}</p>
+        ${isLive ? '<span class="tool-tile-cta">Open tool &rarr;</span>' : ""}
+      `;
+
+      if (isLive && tool.href) {
+        const a = document.createElement("a");
+        a.href = tool.href;
+        a.className = "tool-card tool-card--tile";
+        a.innerHTML = inner;
+        container.appendChild(a);
+      } else {
+        const card = document.createElement("article");
+        card.className = "tool-card tool-card--tile tool-card--disabled";
+        card.innerHTML = inner;
+        container.appendChild(card);
+      }
+    });
+
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+  <script type="module" src="assets/shared/firebase-config.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About — Teacher's Toolkit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/shared/toolkit.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="site-logo" href="./">Teacher's Toolkit</a>
+      <nav class="site-nav" aria-label="Main">
+        <a href="./#tools">Tools</a>
+        <a href="about.html" aria-current="page">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="about-page">
+    <a class="back-link" href="./">&larr; Back to tools</a>
+    <section class="about-section about-section--page">
+      <p class="about-greeting" id="greeting"></p>
+      <h1 id="about-heading">About the creator</h1>
+      <div id="bio-content"></div>
+      <div class="about-links">
+        <a id="github-link" href="#" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>&copy; <span id="year"></span> Teacher's Toolkit</p>
+  </footer>
+
+  <script type="module">
+    import { brand } from "./assets/shared/tools-manifest.js";
+
+    document.getElementById("greeting").textContent =
+      `${brand.creatorName} · ${brand.creatorTitle}`;
+    document.getElementById("bio-content").innerHTML = brand.bio
+      .map((p) => `<p>${p}</p>`)
+      .join("");
+    document.getElementById("github-link").href = brand.githubUrl;
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

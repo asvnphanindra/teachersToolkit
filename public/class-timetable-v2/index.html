@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="./">
+  <title>Class Timetable V2 — Teacher's Toolkit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/shared/toolkit.css">
+  <link rel="stylesheet" href="css/base.css">
+</head>
+<body>
+  <nav class="toolkit-nav">
+    <a href="../index.html">&larr; Teacher's Toolkit</a>
+    <span class="nav-title">Class Timetable V2</span>
+  </nav>
+  <main id="app" aria-live="polite"></main>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    if (location.protocol === "file:") {
+      document.querySelector("#app").innerHTML = '<section style="max-width:760px;margin:2rem auto;padding:1.25rem;background:#fff;border:1px solid #e2e8f0;border-radius:12px"><h1 style="margin-top:0">Open this tool through a web server</h1><p>Class Timetable V2 uses browser modules, which browsers block when an HTML file is opened directly. Use Firebase Hosting, Cursor’s preview server, or another local HTTP server, then open the <code>class-timetable-v2/</code> route.</p></section>';
+    }
+  </script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
