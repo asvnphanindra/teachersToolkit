@@ -1,111 +1,294 @@
-export const PROJECT_VERSION = 1;
+export const PROJECT_VERSION = 4;
+export const STORAGE_PREFIX = "ttk:class-timetable-v2:";
 
-export const ENTITY_TYPES = {
-  rooms: { label: "Rooms", idPrefix: "room", fields: ["code", "name", "capacity", "type"] },
-  sections: { label: "Sections", idPrefix: "section", fields: ["code", "name", "representatives"] },
-  subjects: { label: "Subjects", idPrefix: "subject", fields: ["code", "name", "weeklyPeriods", "type"] },
-  faculty: { label: "Faculty", idPrefix: "faculty", fields: ["code", "name", "email", "phone"] },
-  mentors: { label: "Mentors", idPrefix: "mentor", fields: ["code", "name", "email", "phone"] },
+export const COLUMN_WIDTH = {
+  sectionId: 92,
+  sectionName: 142,
+  subject: 158,
+  lab: 158,
+  support: 158,
+  min: 72,
+  max: 420,
 };
 
-export function uid(prefix) {
+export function uid(prefix = "id") {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-export function createProject(name = "Untitled timetable") {
+export function defaultColumnWidth(kind) {
+  return COLUMN_WIDTH[kind] || COLUMN_WIDTH.subject;
+}
+
+export function clampColumnWidth(width) {
+  const n = Number(width);
+  if (!Number.isFinite(n)) return COLUMN_WIDTH.subject;
+  return Math.round(Math.min(COLUMN_WIDTH.max, Math.max(COLUMN_WIDTH.min, n)));
+}
+
+export function createFixedColumns() {
+  return [
+    {
+      id: "col-section-id",
+      kind: "sectionId",
+      title: "Section Id",
+      subjectKey: null,
+      baseKind: null,
+      width: COLUMN_WIDTH.sectionId,
+    },
+    {
+      id: "col-section-name",
+      kind: "sectionName",
+      title: "Section Name",
+      subjectKey: null,
+      baseKind: null,
+      width: COLUMN_WIDTH.sectionName,
+    },
+  ];
+}
+
+export function createDefaultRow() {
+  return {
+    id: uid("row"),
+    cells: {
+      "col-section-id": "1",
+      "col-section-name": "ECE-1",
+    },
+  };
+}
+
+export function createProject(name = "My class timetable") {
   const now = new Date().toISOString();
+  const columns = createFixedColumns();
+  const row = createDefaultRow();
   return {
     schemaVersion: PROJECT_VERSION,
     id: uid("project"),
     name,
     meta: { createdAt: now, updatedAt: now },
-    school: { name: "", academicYear: "" },
-    timings: { workingDays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], periods: [], breaks: [] },
-    rooms: [],
-    sections: [],
-    subjects: [],
-    faculty: [],
-    mappings: { sectionRoom: {}, sectionSubject: {}, subjectFaculty: {}, sectionFaculty: {}, sectionMentor: {}, subjectMentor: {} },
+    columns,
+    rows: [row],
   };
 }
 
 export function normalizeProject(project) {
-  if (!project || typeof project !== "object") return project;
-  Object.keys(ENTITY_TYPES).forEach((type) => {
-    if (!Array.isArray(project[type])) project[type] = [];
+  if (!project || typeof project !== "object") return null;
+  if (!Array.isArray(project.columns) || !project.columns.length) {
+    project.columns = createFixedColumns();
+  }
+  project.columns.forEach((column) => {
+    column.width = clampColumnWidth(column.width ?? defaultColumnWidth(column.kind));
   });
-  project.mappings = project.mappings && typeof project.mappings === "object" ? project.mappings : {};
-  ["sectionRoom", "sectionSubject", "subjectFaculty", "sectionFaculty", "sectionMentor", "subjectMentor"].forEach((key) => {
-    if (!project.mappings[key] || typeof project.mappings[key] !== "object") project.mappings[key] = {};
+  if (!Array.isArray(project.rows)) project.rows = [createDefaultRow()];
+  project.rows.forEach((row) => {
+    if (!row.id) row.id = uid("row");
+    if (!row.cells || typeof row.cells !== "object") row.cells = {};
+    project.columns.forEach((column) => {
+      if (row.cells[column.id] == null) row.cells[column.id] = "";
+    });
   });
   project.schemaVersion = PROJECT_VERSION;
   return project;
 }
 
-export function createEntity(type, values = {}) {
-  const config = ENTITY_TYPES[type];
-  if (!config) throw new Error(`Unknown entity type: ${type}`);
-  return {
-    id: values.id || uid(config.idPrefix),
-    code: values.code || "",
-    name: values.name || "",
-    ...Object.fromEntries(config.fields.filter((field) => !["code", "name"].includes(field)).map((field) => [field, values[field] ?? ""])),
-  };
-}
-
-export function getById(project, type, id) {
-  return project[type]?.find((item) => item.id === id) || null;
-}
-
-export function labelFor(entity) {
-  return entity ? (entity.code ? `${entity.code} — ${entity.name}` : entity.name) : "Unknown";
-}
-
-export function validateProject(project) {
-  const errors = [];
-  if (!project || project.schemaVersion !== PROJECT_VERSION) errors.push("This project file is not a supported Class Timetable V2 project.");
-  if (!project?.id || !project?.name) errors.push("The project needs an ID and name.");
-  for (const type of Object.keys(ENTITY_TYPES)) {
-    const items = project?.[type];
-    if (!Array.isArray(items)) {
-      errors.push(`${ENTITY_TYPES[type].label} must be a list.`);
-      continue;
-    }
-    const ids = new Set();
-    const codes = new Set();
-    items.forEach((item, index) => {
-      if (!item.id || ids.has(item.id)) errors.push(`${ENTITY_TYPES[type].label}: row ${index + 1} has a missing or duplicate ID.`);
-      ids.add(item.id);
-      if (!item.name?.trim()) errors.push(`${ENTITY_TYPES[type].label}: row ${index + 1} needs a name.`);
-      if (item.code && codes.has(item.code.toLowerCase())) errors.push(`${ENTITY_TYPES[type].label}: ${item.code} is repeated.`);
-      if (item.code) codes.add(item.code.toLowerCase());
-    });
+export function columnHeader(column) {
+  if (column.kind === "sectionId") return "Section Id";
+  if (column.kind === "sectionName") return "Section Name";
+  if (column.kind === "subject") return `${column.title} (staff)`;
+  if (column.kind === "lab") return `${column.title} Lab (staff)`;
+  if (column.kind === "support") {
+    return column.baseKind === "lab"
+      ? `${column.title} Lab (support)`
+      : `${column.title} (support)`;
   }
-  const mappings = project?.mappings;
-  if (!mappings || typeof mappings !== "object") errors.push("The project is missing its relationship mappings.");
-  else ["sectionRoom", "sectionSubject", "subjectFaculty", "sectionFaculty", "sectionMentor", "subjectMentor"].forEach((key) => {
-    if (!mappings[key] || typeof mappings[key] !== "object") errors.push(`The project is missing ${key} mappings.`);
-  });
-  return errors;
+  return column.title || "Column";
+}
+
+export function isMappingColumn(column) {
+  return ["subject", "lab", "support"].includes(column.kind);
+}
+
+export function findInsertIndexAfter(columns, columnId) {
+  const index = columns.findIndex((column) => column.id === columnId);
+  if (index < 0) return columns.length;
+  const column = columns[index];
+  if (!isMappingColumn(column)) return index + 1;
+
+  const familyOf = (item) => (
+    item.kind === "lab" || (item.kind === "support" && item.baseKind === "lab")
+      ? "lab"
+      : "subject"
+  );
+  const family = familyOf(column);
+
+  // Keep subject+support and lab+support as tight visual families within a subjectKey.
+  let end = index;
+  for (let i = index + 1; i < columns.length; i += 1) {
+    const next = columns[i];
+    if (next.subjectKey !== column.subjectKey) break;
+    if (familyOf(next) !== family) break;
+    end = i;
+  }
+  return end + 1;
+}
+
+export function addSubjectColumn(project, afterColumnId, subjectTitle) {
+  const title = String(subjectTitle || "").trim();
+  if (!title) throw new Error("Enter a subject name.");
+  const subjectKey = uid("subj");
+  const column = {
+    id: uid("col"),
+    kind: "subject",
+    title,
+    subjectKey,
+    baseKind: "subject",
+    width: COLUMN_WIDTH.subject,
+  };
+  const at = findInsertIndexAfter(project.columns, afterColumnId || "col-section-name");
+  project.columns.splice(at, 0, column);
+  project.rows.forEach((row) => { row.cells[column.id] = ""; });
+  return column;
+}
+
+export function addLabColumn(project, afterColumnId, labTitle, options = {}) {
+  const linkTo = options.linkTo && isMappingColumn(options.linkTo) ? options.linkTo : null;
+  const title = String((linkTo ? linkTo.title : labTitle) || "").trim();
+  if (!title) throw new Error("Enter a lab name.");
+  const subjectKey = linkTo?.subjectKey || uid("subj");
+  if (linkTo) {
+    const exists = project.columns.some(
+      (column) => column.subjectKey === subjectKey && column.kind === "lab",
+    );
+    if (exists) throw new Error(`A lab column for "${linkTo.title}" already exists.`);
+  }
+  const column = {
+    id: uid("col"),
+    kind: "lab",
+    title,
+    subjectKey,
+    baseKind: "lab",
+    width: COLUMN_WIDTH.lab,
+  };
+  const at = findInsertIndexAfter(project.columns, afterColumnId || linkTo?.id || "col-section-name");
+  project.columns.splice(at, 0, column);
+  project.rows.forEach((row) => { row.cells[column.id] = ""; });
+  return column;
+}
+
+export function parseMappingTitle(column, displayed) {
+  let title = String(displayed || "").trim();
+  if (column.kind === "subject") {
+    title = title.replace(/\s*\(staff\)\s*$/i, "");
+  } else if (column.kind === "lab") {
+    title = title.replace(/\s*Lab\s*\(staff\)\s*$/i, "").replace(/\s*\(staff\)\s*$/i, "");
+  } else if (column.kind === "support") {
+    title = column.baseKind === "lab"
+      ? title.replace(/\s*Lab\s*\(support\)\s*$/i, "")
+      : title.replace(/\s*\(support\)\s*$/i, "");
+  }
+  return title.trim();
+}
+
+export function renameMappingColumn(project, columnId, displayedTitle) {
+  const column = project.columns.find((item) => item.id === columnId);
+  if (!column || !isMappingColumn(column)) return false;
+  const title = parseMappingTitle(column, displayedTitle);
+  if (!title) return false;
+
+  if (column.kind === "subject") {
+    project.columns.forEach((item) => {
+      if (item.subjectKey === column.subjectKey) item.title = title;
+    });
+    return true;
+  }
+
+  if (column.kind === "lab") {
+    project.columns.forEach((item) => {
+      if (item.subjectKey !== column.subjectKey) return;
+      if (item.kind === "lab" || (item.kind === "support" && item.baseKind === "lab")) {
+        item.title = title;
+      }
+    });
+    return true;
+  }
+
+  // support: rename only this column's title (display uses same title field)
+  column.title = title;
+  return true;
+}
+
+export function addSupportColumn(project, fromColumn) {
+  if (!isMappingColumn(fromColumn)) throw new Error("Choose a subject, lab, or support column.");
+  const baseKind = fromColumn.kind === "lab" || (fromColumn.kind === "support" && fromColumn.baseKind === "lab")
+    ? "lab"
+    : "subject";
+  const exists = project.columns.some(
+    (column) => column.subjectKey === fromColumn.subjectKey && column.kind === "support" && column.baseKind === baseKind,
+  );
+  if (exists) {
+    throw new Error(
+      baseKind === "lab"
+        ? `Supporting staff for "${fromColumn.title} Lab" already exists.`
+        : `Supporting staff for "${fromColumn.title}" already exists.`,
+    );
+  }
+  const column = {
+    id: uid("col"),
+    kind: "support",
+    title: fromColumn.title,
+    subjectKey: fromColumn.subjectKey,
+    baseKind,
+    width: COLUMN_WIDTH.support,
+  };
+  const anchor = project.columns.find(
+    (item) => item.subjectKey === fromColumn.subjectKey && item.kind === baseKind,
+  ) || fromColumn;
+  const at = findInsertIndexAfter(project.columns, anchor.id);
+  project.columns.splice(at, 0, column);
+  project.rows.forEach((row) => { row.cells[column.id] = ""; });
+  return column;
+}
+
+export function deleteColumn(project, columnId) {
+  const column = project.columns.find((item) => item.id === columnId);
+  if (!column) return;
+  if (column.kind === "sectionId" || column.kind === "sectionName") {
+    throw new Error("Section Id and Section Name columns cannot be deleted.");
+  }
+  project.columns = project.columns.filter((item) => item.id !== columnId);
+  project.rows.forEach((row) => { delete row.cells[columnId]; });
+}
+
+export function addRows(project, count) {
+  const n = Number(count);
+  if (!Number.isInteger(n) || n < 1 || n > 100) throw new Error("Enter a whole number of rows between 1 and 100.");
+  for (let i = 0; i < n; i += 1) {
+    const row = { id: uid("row"), cells: {} };
+    project.columns.forEach((column) => { row.cells[column.id] = ""; });
+    project.rows.push(row);
+  }
+}
+
+export function deleteRow(project, rowId) {
+  if (project.rows.length <= 1) throw new Error("Keep at least one section row.");
+  project.rows = project.rows.filter((row) => row.id !== rowId);
+}
+
+export function moveRow(project, fromIndex, toIndex) {
+  if (fromIndex === toIndex) return;
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= project.rows.length || toIndex >= project.rows.length) return;
+  const [row] = project.rows.splice(fromIndex, 1);
+  project.rows.splice(toIndex, 0, row);
 }
 
 export function mappingIssues(project) {
   const issues = [];
-  const { sectionRoom, sectionSubject, subjectFaculty, sectionFaculty } = project.mappings;
-  project.sections.forEach((section) => {
-    if (!sectionRoom[section.id]) issues.push(`${labelFor(section)} has no home room.`);
-    if (!(sectionSubject[section.id] || []).length) issues.push(`${labelFor(section)} has no subjects.`);
-    if (!project.mappings.sectionMentor[section.id]) issues.push(`${labelFor(section)} has no mentor.`);
+  project.rows.forEach((row, index) => {
+    const sectionId = String(row.cells["col-section-id"] || "").trim();
+    const sectionName = String(row.cells["col-section-name"] || "").trim();
+    if (!sectionId) issues.push(`Row ${index + 1}: Section Id is empty.`);
+    if (!sectionName) issues.push(`Row ${index + 1}: Section Name is empty.`);
   });
-  project.subjects.forEach((subject) => {
-    if (!(subjectFaculty[subject.id] || []).length) issues.push(`${labelFor(subject)} has no eligible faculty.`);
-  });
-  Object.entries(sectionFaculty).forEach(([sectionId, facultyIds]) => {
-    const subjectIds = new Set(sectionSubject[sectionId] || []);
-    facultyIds.forEach((facultyId) => {
-      const isEligible = [...subjectIds].some((subjectId) => (subjectFaculty[subjectId] || []).includes(facultyId));
-      if (!isEligible) issues.push(`${labelFor(getById(project, "faculty", facultyId))} is assigned to a section without an eligible subject.`);
-    });
-  });
+  const mappingCols = project.columns.filter(isMappingColumn);
+  if (!mappingCols.length) issues.push("Add at least one subject or lab column before scheduling.");
   return issues;
 }

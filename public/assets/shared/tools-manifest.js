@@ -11,10 +11,18 @@ export const tools = [
   {
     slug: "class-timetable-v2",
     name: "Class Timetable V2",
-    description: "Import your lists and map rooms, sections, subjects, and faculty",
+    description: "Map sections to subjects and staff, then schedule",
     status: "live",
     href: "class-timetable-v2/",
     icon: "🗂️",
+  },
+  {
+    slug: "lesson-plan-manager",
+    name: "Teaching Lesson Plan Manager",
+    description: "Plan semesters, teaching sessions, and syllabus coverage",
+    status: "live",
+    href: "lesson-plan-manager/",
+    icon: "📚",
   },
   {
     slug: "wordhunt",
@@ -23,6 +31,14 @@ export const tools = [
     status: "live",
     href: "wordhunt/",
     icon: "🔎",
+  },
+  {
+    slug: "word-builder",
+    name: "Classroom Word Builder",
+    description: "Project letter tiles and build vocabulary words together",
+    status: "live",
+    href: "word-builder/",
+    icon: "🔤",
   },
   {
     slug: "more-tools",

@@ -3,15 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Classroom Word Hunt</title>
+  <title>Classroom Word Builder</title>
+  <link rel="stylesheet" href="../assets/shared/toolkit.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <nav class="toolkit-nav">
+    <a href="../">← Teacher's Toolkit</a>
+    <span class="nav-title">Word Builder</span>
+  </nav>
+
   <main class="app-shell">
     <header class="app-header">
       <div>
         <p class="eyebrow">CLASSROOM INTERACTIVE GAME</p>
-        <h1 id="puzzle-title">Word Hunt</h1>
+        <h1 id="puzzle-title">Word Builder</h1>
         <p id="puzzle-subtitle">Load an INI puzzle file to begin.</p>
         <p id="puzzle-file" class="puzzle-file" hidden></p>
       </div>
@@ -23,69 +29,80 @@
     </header>
 
     <section id="welcome-panel" class="welcome-panel">
-      <div class="welcome-icon" aria-hidden="true">⌕</div>
-      <h2>Ready for a Word Hunt?</h2>
-      <p>Select one of the included <code>.ini</code> files, or create your own using the documented format.</p>
+      <div class="welcome-icon" aria-hidden="true">ABC</div>
+      <h2>Ready to build words?</h2>
+      <p>Load an editable <code>.ini</code> word list, then project the letters for your class.</p>
       <button id="welcome-load-button">Load puzzle</button>
       <p class="offline-note">Works offline in any modern desktop browser.</p>
     </section>
 
     <section id="game-panel" class="game-layout" hidden>
-      <section class="game-stage" aria-label="Word Hunt puzzle">
+      <section class="game-stage" aria-label="Word Builder puzzle">
         <div class="scorebar">
           <div><span class="stat-label">Found</span><strong id="found-count">0 / 0</strong></div>
           <div><span class="stat-label">Score</span><strong id="score">0</strong></div>
         </div>
-        <div id="grid-wrap" class="grid-wrap">
-          <div id="word-grid" class="word-grid" aria-label="Letter grid"></div>
+
+        <div class="view-controls teacher-control">
+          <label for="letter-view">Letter view</label>
+          <select id="letter-view">
+            <option value="scrambled">Scrambled tiles</option>
+            <option value="grid">Letter grid</option>
+            <option value="grouped">Letter packs</option>
+          </select>
         </div>
+        <div id="letter-board-wrap" class="letter-board-wrap">
+          <div id="letter-board" class="letter-board" aria-label="Letters available to build words"></div>
+        </div>
+
         <div class="answer-area teacher-control">
-          <label for="guess-input">Guess a word</label>
+          <label for="guess-input">Build a word</label>
           <div class="answer-row">
-            <input id="guess-input" type="text" autocomplete="off" placeholder="Enter guessed word">
+            <input id="guess-input" type="text" autocomplete="off" placeholder="Type the word the class formed">
             <button id="check-button">Check word</button>
           </div>
           <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
         </div>
+
         <div class="game-actions teacher-control">
-          <button id="hint-button" class="secondary">Hint</button>
-          <button id="reveal-button" class="secondary">Reveal answer</button>
-          <button id="same-grid-button" class="secondary">Play again: same grid</button>
-          <button id="new-grid-button" class="secondary">Play again: new grid</button>
+          <button id="show-words-button" class="secondary">Show words (5s)</button>
+          <button id="restart-button" class="secondary">Start again</button>
+          <button id="new-puzzle-button" class="secondary">Load another puzzle</button>
         </div>
       </section>
 
-      <aside class="progress-panel">
-        <h2>Words to find</h2>
+      <aside id="progress-panel" class="progress-panel">
+        <h2>Words built</h2>
         <ol id="word-list" class="word-list"></ol>
-        <p class="legend"><span class="found-dot"></span> Found by students <span class="revealed-dot"></span> Revealed</p>
       </aside>
     </section>
   </main>
 
-  <dialog id="reveal-dialog">
-    <form method="dialog">
-      <h2>Reveal answer</h2>
-      <p>Select an unfound word. It will be highlighted but score no points.</p>
-      <select id="reveal-select" aria-label="Word to reveal"></select>
-      <div class="dialog-actions">
-        <button value="cancel" class="secondary">Cancel</button>
-        <button id="confirm-reveal-button" value="default">Reveal</button>
+  <dialog id="word-preview-dialog" class="word-preview-dialog">
+    <section>
+      <div class="preview-decoration" aria-hidden="true">
+        <span>A</span><span>B</span><span>C</span><span>★</span><span>?</span><span>!</span><span>Z</span><span>+</span>
       </div>
-    </form>
+      <p class="eyebrow">MEMORISE THE WORDS</p>
+      <h2>Words to build</h2>
+      <ol id="word-preview-list" class="word-preview-list"></ol>
+      <p id="word-preview-timer" class="word-preview-timer" aria-live="polite"></p>
+      <button id="close-preview-button" type="button" class="secondary">Hide words</button>
+    </section>
   </dialog>
+
   <dialog id="completion-dialog">
     <form method="dialog">
       <div class="completion-mark" aria-hidden="true">🎉</div>
-      <h2>Word Hunt complete!</h2>
+      <h2>Word Builder complete!</h2>
       <p id="completion-summary"></p>
       <div class="dialog-actions">
-        <button id="completion-same-button" value="default" class="secondary">Same grid</button>
-        <button id="completion-new-button" value="default">New grid</button>
+        <button id="completion-restart-button" value="default" class="secondary">Start again</button>
         <button id="completion-load-button" value="default">Load another puzzle</button>
       </div>
     </form>
   </dialog>
+
   <dialog id="question-dialog" class="question-dialog">
     <form method="dialog">
       <p class="eyebrow">CLASS DISCUSSION</p>
@@ -95,7 +112,7 @@
       <p id="answer-timer" class="answer-timer" aria-live="polite"></p>
       <div class="dialog-actions">
         <button id="show-answer-button" type="button" class="secondary">Show answer</button>
-        <button id="continue-word-hunt-button" value="continue">Continue word hunt</button>
+        <button id="continue-button" value="continue">Continue</button>
       </div>
     </form>
   </dialog>

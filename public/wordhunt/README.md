@@ -58,6 +58,12 @@ Add a `WORD.question=...` and/or `WORD.answer=...` entry for any word in `[Words
 
 Both fields are optional. A question without an answer simply starts a discussion. An answer without a question uses a neutral discussion prompt. Every question key must correspond to a word in `[Words]`.
 
+## Content safety
+
+Before showing a puzzle, the app validates its title, words, questions, and answers against the shared policy at `../assets/shared/content-safety/default-policy.js`. A matching source field stops the puzzle from loading; it is never silently changed.
+
+Random filler letters are also checked horizontally, vertically, diagonally, and in reverse. The app changes only filler letters where possible, then retries the grid if a blocked sequence remains. Edit `blockedWords` or the `text` and `grid` rule settings in the policy file to apply your school's vocabulary and scanning rules.
+
 ## How it works
 
 ### Placement and validation

@@ -7,7 +7,9 @@
     diagonal: [[1, 1], [1, -1]]
   };
   const WORD_COLOURS = ["#087f5b", "#1f5f9f", "#7b3fa3", "#c04b22", "#0b7285", "#9c36b5"];
-  const state = { puzzle: null, fileName: "", grid: [], placements: new Map(), statuses: new Map(), score: 0, activeAnswer: "", pendingCompletion: false };
+  const CSE = window.TeacherToolkitContentSafety;
+  const CSE_POLICY = window.TeacherToolkitContentSafetyPolicy;
+  const state = { puzzle: null, fileName: "", grid: [], placements: new Map(), statuses: new Map(), score: 0, activeAnswer: "", pendingCompletion: false, answerTimer: null };
   const $ = id => document.getElementById(id);
   const els = {
     file: $("file-input"), load: $("load-button"), welcomeLoad: $("welcome-load-button"),
@@ -15,7 +17,7 @@
     panel: $("game-panel"), grid: $("word-grid"), wordList: $("word-list"),
     input: $("guess-input"), check: $("check-button"), feedback: $("feedback"),
     questionDialog: $("question-dialog"), followUpQuestion: $("follow-up-question"),
-    questionSuccess: $("question-success-message"), showAnswer: $("show-answer-button"), followUpAnswer: $("follow-up-answer"),
+    questionSuccess: $("question-success-message"), showAnswer: $("show-answer-button"), answerTimer: $("answer-timer"), followUpAnswer: $("follow-up-answer"),
     found: $("found-count"), score: $("score"), hint: $("hint-button"), reveal: $("reveal-button"),
     same: $("same-grid-button"), fresh: $("new-grid-button"), classroom: $("classroom-mode-button"),
     revealDialog: $("reveal-dialog"), revealSelect: $("reveal-select"), confirmReveal: $("confirm-reveal-button"),
@@ -39,6 +41,16 @@
     return sections;
   }
 
+  function requireSafeText(value, label) {
+    const result = CSE.validateText(value, CSE_POLICY);
+    if (!result.safe) throw new Error(`${label} contains blocked content: ${result.matches[0].term}.`);
+  }
+
+  function requireSafeWord(value, label) {
+    const result = CSE.validateWord(value, CSE_POLICY);
+    if (!result.safe) throw new Error(`${label} is blocked by the content safety policy: ${result.matches[0].term}.`);
+  }
+
   function buildPuzzle(sections) {
     const config = sections.puzzle;
     const integer = (name, fallback) => {
@@ -47,6 +59,8 @@
       return Number(value);
     };
     const rows = integer("rows"), columns = integer("columns");
+    const title = config.title?.trim() || "Word Hunt";
+    requireSafeText(title, "Puzzle title");
     const fontSize = Number(config.font_size ?? 24);
     if (!Number.isFinite(fontSize) || fontSize < 8 || fontSize > 72) throw new Error('Puzzle setting "font_size" must be a number from 8 to 72.');
     const names = (config.directions ?? "").toLowerCase().split(",").map(x => x.trim()).filter(Boolean);
@@ -62,6 +76,7 @@
       if (!/^[A-Z]+$/.test(search)) throw new Error(`"${display}" contains invalid characters. Use letters and optional spaces only.`);
       if (seen.has(search)) throw new Error(`Duplicate word: ${search}.`);
       if (search.length > Math.max(rows, columns)) throw new Error(`"${search}" is too long for a ${rows} × ${columns} grid.`);
+      requireSafeWord(display, `Word "${display}"`);
       seen.add(search); words.push({ search, display: display.toUpperCase() });
     });
     if (!words.length) throw new Error("The [Words] section has no usable words.");
@@ -75,11 +90,14 @@
       const followUp = followUps.get(search) ?? {};
       const property = match[2].toLowerCase();
       if (property === "enabled") followUp.enabled = parseBoolean(value.trim(), true);
-      else if (value.trim()) followUp[property] = value.trim();
+      else if (value.trim()) {
+        requireSafeText(value.trim(), `${property === "question" ? "Question" : "Answer"} for "${match[1]}"`);
+        followUp[property] = value.trim();
+      }
       followUps.set(search, followUp);
     });
     return {
-      title: config.title?.trim() || "Word Hunt",
+      title,
       rows, columns, fontSize, directions: names,
       allowReverse: parseBoolean(config.allow_reverse, true),
       allowOverlap: parseBoolean(config.allow_overlap, true),
@@ -112,7 +130,7 @@
   function generateGrid(puzzle) {
     const directions = makeDirections(puzzle);
     // Rebuild from scratch to avoid a locally valid placement blocking a later word.
-    for (let restart = 0; restart < 80; restart++) {
+    for (let restart = 0; restart < CSE.generationAttemptLimit(CSE_POLICY); restart++) {
       const grid = Array.from({ length: puzzle.rows }, () => Array(puzzle.columns).fill(""));
       const placements = new Map();
       let failed = false;
@@ -135,10 +153,20 @@
       }
       if (!failed) {
         grid.forEach(row => row.forEach((letter, index) => { if (!letter) row[index] = String.fromCharCode(65 + Math.floor(Math.random() * 26)); }));
-        return { grid, placements };
+        const fixedCells = new Set();
+        placements.forEach(placement => {
+          for (let index = 0; index < placement.length; index++) {
+            fixedCells.add(`${placement.row + placement.dr * index},${placement.col + placement.dc * index}`);
+          }
+        });
+        const safety = CSE.repairGrid(grid, {
+          policy: CSE_POLICY,
+          isMutable: (row, column) => !fixedCells.has(`${row},${column}`)
+        });
+        if (safety.safe) return { grid, placements };
       }
     }
-    throw new Error(`Unable to place all ${puzzle.words.length} words in a ${puzzle.rows} × ${puzzle.columns} grid. Try a larger grid, more directions, or allowing overlap.`);
+    throw new Error(`Unable to safely place all ${puzzle.words.length} words in a ${puzzle.rows} × ${puzzle.columns} grid. Try a larger grid, more directions, or allowing overlap.`);
   }
 
   function startGame(reuseGrid = false) {
@@ -218,11 +246,38 @@
   }
   function setFeedback(message, type) { els.feedback.textContent = message; els.feedback.className = `feedback ${type}`; }
   function clearFollowUp() {
+    window.clearInterval(state.answerTimer);
+    state.answerTimer = null;
     state.activeAnswer = "";
     els.followUpAnswer.classList.remove("answer-revealed");
     els.followUpAnswer.hidden = true;
     els.followUpAnswer.setAttribute("aria-hidden", "true");
     els.followUpAnswer.textContent = "";
+    els.answerTimer.hidden = true;
+    els.answerTimer.textContent = "";
+    els.showAnswer.disabled = false;
+    els.showAnswer.textContent = "Show answer";
+  }
+  function startAnswerTimer() {
+    let remaining = 10;
+    els.showAnswer.disabled = true;
+    els.showAnswer.textContent = `Show answer (${remaining}s)`;
+    els.answerTimer.hidden = false;
+    els.answerTimer.textContent = `Discuss the question — the answer can be revealed in ${remaining} seconds.`;
+
+    state.answerTimer = window.setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        els.showAnswer.textContent = `Show answer (${remaining}s)`;
+        els.answerTimer.textContent = `Discuss the question — the answer can be revealed in ${remaining} seconds.`;
+        return;
+      }
+      window.clearInterval(state.answerTimer);
+      state.answerTimer = null;
+      els.showAnswer.disabled = false;
+      els.showAnswer.textContent = "Show answer";
+      els.answerTimer.textContent = "You can now reveal the answer.";
+    }, 1000);
   }
   function offerFollowUp(word) {
     const followUp = state.puzzle.followUps.get(word.search);
@@ -237,9 +292,10 @@
     els.showAnswer.hidden = !state.activeAnswer;
     document.body.classList.add("question-active");
     els.questionDialog.showModal();
+    if (state.activeAnswer) startAnswerTimer();
   }
   function showAnswer() {
-    if (!state.activeAnswer) return;
+    if (!state.activeAnswer || els.showAnswer.disabled) return;
     els.followUpAnswer.textContent = `Answer: ${state.activeAnswer}`;
     els.followUpAnswer.hidden = false;
     els.followUpAnswer.setAttribute("aria-hidden", "false");
