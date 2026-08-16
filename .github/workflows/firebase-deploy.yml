@@ -11,7 +11,16 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+      - name: Check FIREBASE_TOKEN secret
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          if [ -z "$FIREBASE_TOKEN" ]; then
+            echo "::error::FIREBASE_TOKEN secret is missing or empty. Run 'firebase login:ci' locally, then add the token as a GitHub Actions repository secret named FIREBASE_TOKEN."
+            exit 1
+          fi
+          echo "FIREBASE_TOKEN secret is present (value not logged)."
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
       - name: Deploy Hosting
