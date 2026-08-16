@@ -8,6 +8,7 @@ import {
   createProject,
   deleteColumn,
   deleteRow,
+  fillTestMappingData,
   isMappingColumn,
   mappingIssues,
   moveRow,
@@ -17,13 +18,41 @@ import {
   deleteProject,
   ensureActiveProject,
   exportProjectJson,
+  importProjectJson,
   listProjects,
   loadProject,
   saveProject,
 } from "./storage.js";
+import { exportMappingPdf } from "./pdf-export.js";
+import { facultySummaryTables } from "./summary.js";
+import {
+  WEEK_DAYS,
+  adjustTimeRowsForPeriodCount,
+  assignmentPlaced,
+  clearSlot,
+  fullMappingIssues,
+  getSlot,
+  isStaffBusy,
+  normalizeSchedule,
+  scheduleColumnTemplate,
+  scheduleGridColumns,
+  sectionAssignments,
+  sectionLabel,
+  setSlot,
+  staffBooking,
+  syncSetupFromTimeRows,
+  toggleStaffBusy,
+} from "./schedule.js";
 
 const app = document.querySelector("#app");
 let project = ensureActiveProject();
+let view = "mapping";
+let scheduleRowId = project.rows[0]?.id || null;
+let scheduleDay = "Monday";
+let scheduleDragActive = false;
+let filesMenuOpen = false;
+let scheduleSearch = "";
+let scheduleVisibleCount = 7;
 let menu = null; // { columnId, x, y }
 let selected = null; // { rowId, columnId }
 let fillDrag = null;
@@ -172,7 +201,39 @@ function groupClassNames(column, groups) {
   ].filter(Boolean).join(" ");
 }
 
+function mappingSuggestions(columns, rows) {
+  const suggestions = new Set();
+  columns.filter(isMappingColumn).forEach((column) => {
+    rows.forEach((row) => {
+      const value = String(row.cells[column.id] || "").trim();
+      if (value) suggestions.add(value);
+    });
+  });
+  return suggestions;
+}
+
+function refreshMappingSuggestions() {
+  const datalist = app.querySelector("#mapping-staff-suggestions");
+  if (!datalist) return;
+  datalist.innerHTML = [...mappingSuggestions(project.columns, project.rows)]
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => `<option value="${esc(value)}"></option>`)
+    .join("");
+}
+
 function render() {
+  if (view === "summary") {
+    renderSummary();
+    return;
+  }
+  if (view === "timingSetup") {
+    renderTimingSetup();
+    return;
+  }
+  if (view === "schedule") {
+    renderSchedule();
+    return;
+  }
   const issues = mappingIssues(project);
   const projects = listProjects();
   const tableWidth = ACTION_WIDTH + GRIP_WIDTH
@@ -181,6 +242,7 @@ function render() {
   const colCount = project.columns.length;
   const layout = frozenLayout(project.columns);
   const groups = mappingGroupMeta(project.columns);
+  const suggestions = mappingSuggestions(project.columns, project.rows);
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
@@ -200,11 +262,27 @@ function render() {
             ${issues.length
               ? `<span class="map-status warn" role="status">${issues.length} to fix</span>`
               : `<span class="map-status ok" role="status">Ready</span>`}
-            <button type="button" class="btn btn--secondary btn--sm" data-action="add-rows">+ Rows</button>
-            <button type="button" class="btn btn--secondary btn--sm" data-action="export">Export</button>
-            <button type="button" class="btn btn--secondary btn--sm" data-action="new-project">New</button>
           </div>
         </header>
+
+        <div class="map-action-bar" aria-label="Mapping actions">
+          <div class="map-action-bar-left">
+            <button type="button" class="btn btn--secondary btn--sm" data-action="fill-test" title="Load sample sections, subjects, labs, and staff">Fill test data</button>
+            <button type="button" class="btn btn--secondary btn--sm" data-action="summary">Faculty summary</button>
+            <div class="map-file-menu-wrap">
+              <button type="button" class="btn btn--secondary btn--sm" data-action="toggle-files-menu" aria-haspopup="menu" aria-expanded="${filesMenuOpen ? "true" : "false"}">Files</button>
+              ${filesMenuOpen ? `
+                <div class="map-file-menu" role="menu" aria-label="Files">
+                  <button type="button" role="menuitem" data-action="import">Import JSON</button>
+                  <button type="button" role="menuitem" data-action="export">Export JSON</button>
+                  <button type="button" role="menuitem" data-action="export-pdf">Export PDF</button>
+                </div>
+              ` : ""}
+            </div>
+            <button type="button" class="btn btn--secondary btn--sm" data-action="new-project">New</button>
+            <input id="import-mapping-file" class="visually-hidden" type="file" accept="application/json,.json,.mapping.json" tabindex="-1">
+          </div>
+        </div>
 
         <section class="map-main" aria-label="Section mapping">
           <div class="map-workspace">
@@ -269,7 +347,7 @@ function render() {
                         const groupClasses = groupClassNames(column, groups);
                         return `<td class="map-cell ${sticky} ${groupClasses} ${focused ? "is-selected" : ""}" data-row="${row.id}" data-col="${column.id}" style="${stickyStyle}">
                           <div class="map-cell-inner">
-                            <input value="${esc(row.cells[column.id] || "")}" data-cell-row="${row.id}" data-cell-col="${column.id}" aria-label="${esc(columnHeader(column))} for row ${rowIndex + 1}" placeholder="—" draggable="false">
+                            <input value="${esc(row.cells[column.id] || "")}" data-cell-row="${row.id}" data-cell-col="${column.id}" ${isMappingColumn(column) ? 'list="mapping-staff-suggestions"' : ""} aria-label="${esc(columnHeader(column))} for row ${rowIndex + 1}" placeholder="—" draggable="false">
                             ${focused ? `<span class="map-fill-handle" data-fill-row="${row.id}" data-fill-col="${column.id}" title="Drag to fill"></span>` : ""}
                           </div>
                         </td>`;
@@ -278,6 +356,14 @@ function render() {
                   `).join("")}
                 </tbody>
               </table>
+            </div>
+            <datalist id="mapping-staff-suggestions">
+              ${[...suggestions].sort((a, b) => a.localeCompare(b)).map((value) => `<option value="${esc(value)}"></option>`).join("")}
+            </datalist>
+
+            <div class="map-table-footer">
+              <button type="button" class="btn btn--secondary btn--sm" data-action="add-rows">+ Add rows</button>
+              <button type="button" class="btn btn--primary btn--sm" data-action="start-step-2">Design Timetable</button>
             </div>
           </div>
 
@@ -319,6 +405,590 @@ function render() {
   bind();
 }
 
+function renderSectionCount(assignments) {
+  if (!assignments.length) return "—";
+  const sections = assignments.map((section) => `${section.sectionId} · ${section.sectionName}`).join("\n");
+  return `<span class="map-summary-count" tabindex="0" title="${esc(sections)}" aria-label="Assigned sections: ${esc(sections)}">${assignments.length}</span>`;
+}
+
+function renderSummaryRows(rows, label, groupClass, table, startAt = 0) {
+  if (!rows.length) return "";
+  const columnCount = table.hasLab ? 4 : 3;
+  return `
+    <tr class="map-summary-role ${groupClass}">
+      <th colspan="${columnCount}" scope="rowgroup">${label}</th>
+    </tr>
+    ${rows.map((row, index) => `
+      <tr>
+        <td>${startAt + index + 1}</td>
+        <td>${esc(row.staff)}</td>
+        <td>${renderSectionCount(table.type === "lab" ? row.labAssignments : row.subjectAssignments)}</td>
+        ${table.hasLab ? `<td>${renderSectionCount(row.labAssignments)}</td>` : ""}
+      </tr>
+    `).join("")}
+  `;
+}
+
+function renderSummary() {
+  const tables = facultySummaryTables(project);
+  app.innerHTML = `
+    <div class="map-page">
+      <div class="map-shell">
+        <header class="map-header" role="toolbar" aria-label="Faculty summary tools">
+          <div class="map-header-left">
+            <p class="map-step"><span class="map-step-dot" aria-hidden="true"></span>Step 1 · Faculty summary</p>
+            <h1 class="map-summary-project">${esc(project.name)}</h1>
+          </div>
+          <div class="map-header-actions">
+            <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
+          </div>
+        </header>
+
+        <main class="map-summary" aria-label="Faculty statistics by subject">
+          <div class="map-summary-intro">
+            <div>
+              <h2>Faculty workload by subject</h2>
+              <p>Each total is the number of distinct sections assigned to that staff member. Teaching and supporting staff are shown separately.</p>
+            </div>
+            <span>${project.rows.length} section${project.rows.length === 1 ? "" : "s"}</span>
+          </div>
+          ${tables.length ? `
+            <div class="map-summary-grid">
+              ${tables.map((table, tableIndex) => `
+                <section class="map-summary-card" aria-labelledby="summary-table-${tableIndex}">
+                  <h3 id="summary-table-${tableIndex}">${esc(table.title)}</h3>
+                  ${table.staffRows.length || table.supportRows.length ? `
+                    <div class="map-summary-table-wrap">
+                      <table class="map-summary-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">S. No.</th>
+                            <th scope="col">Staff member</th>
+                            <th scope="col">Sections</th>
+                            ${table.hasLab ? `<th scope="col">Lab sections</th>` : ""}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${renderSummaryRows(table.staffRows, "Teaching staff", "map-summary-role--teaching", table)}
+                          ${renderSummaryRows(table.supportRows, "Supporting staff", "map-summary-role--support", table, table.staffRows.length)}
+                        </tbody>
+                      </table>
+                    </div>
+                  ` : `<p class="map-summary-empty">No staff assignments yet.</p>`}
+                </section>
+              `).join("")}
+            </div>
+          ` : `<section class="map-summary-empty-state"><h2>No subjects or labs yet</h2><p>Add a subject or lab in the mapping grid to view its faculty statistics.</p><button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button></section>`}
+        </main>
+      </div>
+    </div>
+  `;
+  app.querySelectorAll("[data-action='back-to-mapping']").forEach((button) => {
+    button.onclick = () => {
+      view = "mapping";
+      render();
+    };
+  });
+}
+
+function renderTimingSetup() {
+  const schedule = normalizeSchedule(project);
+  const setup = schedule.setup;
+  const timeRows = setup.timeRows || [];
+  const rowHtml = timeRows.map((row, index) => renderTimeSetupRow(row, index)).join("");
+
+  app.innerHTML = `
+    <div class="map-page">
+      <div class="map-shell">
+        <header class="map-header" role="toolbar" aria-label="Schedule setup tools">
+          <div class="map-header-left">
+            <p class="map-step"><span class="map-step-dot" aria-hidden="true"></span>Step 1.5 · Timings</p>
+            <h1 class="map-summary-project">${esc(project.name)}</h1>
+          </div>
+          <div class="map-header-actions">
+            <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
+            <button type="button" class="btn btn--primary btn--sm" data-action="open-schedule">Open scheduler</button>
+          </div>
+        </header>
+
+        <main class="schedule-setup" aria-label="Schedule timing setup">
+          <section class="schedule-card">
+            <div class="schedule-card-head">
+              <h2>Working days and periods</h2>
+              <p>These settings control the Step 2 timetable grid and faculty availability boxes.</p>
+            </div>
+            <div class="schedule-days" id="setup-days">
+              ${WEEK_DAYS.map((day) => `
+                <label class="schedule-day-check">
+                  <input type="checkbox" value="${day}" ${setup.workingDays.includes(day) ? "checked" : ""}>
+                  <span>${day}</span>
+                </label>
+              `).join("")}
+            </div>
+            <label class="schedule-period-count">
+              <span>Periods per day</span>
+              <input type="number" id="setup-period-count" min="1" max="12" value="${setup.periodsPerDay}">
+            </label>
+          </section>
+
+          <section class="schedule-card">
+            <div class="schedule-card-head">
+              <h2>Day schedule</h2>
+              <p>Set period and break times in the order they appear in the timetable.</p>
+            </div>
+            <div class="schedule-table-wrap">
+              <table class="schedule-setup-table schedule-time-rows-table" id="setup-time-rows">
+                <thead><tr><th>Description</th><th>From</th><th>To</th></tr></thead>
+                <tbody>${rowHtml}</tbody>
+              </table>
+            </div>
+            <div class="schedule-time-rows-actions">
+              <button type="button" class="btn btn--secondary btn--sm" data-action="add-break">+ Add break</button>
+            </div>
+          </section>
+        </main>
+
+        <footer class="map-footer">
+          <p><strong>Class Timetable V2</strong> · Step 2 setup</p>
+          <p>Autosaved locally</p>
+        </footer>
+      </div>
+    </div>
+  `;
+  bindTimingSetup();
+}
+
+function renderTimeSetupRow(row, index) {
+  if (row.type === "break") {
+    return `<tr data-row-index="${index}" data-row-type="break" data-row-id="${esc(row.id)}">
+      <td class="schedule-time-desc">
+        <input data-time-label value="${esc(row.label)}" placeholder="Break name" aria-label="Break description">
+        <button type="button" class="btn btn--secondary btn--sm" data-remove-break="${index}" title="Remove break">Remove</button>
+      </td>
+      <td><input type="time" data-time-start value="${esc(row.start)}" aria-label="Break start"></td>
+      <td><input type="time" data-time-end value="${esc(row.end)}" aria-label="Break end"></td>
+    </tr>`;
+  }
+  return `<tr data-row-index="${index}" data-row-type="period" data-period="${row.period}">
+    <td class="schedule-time-desc"><span data-time-label>${esc(row.label || `Period ${row.period}`)}</span></td>
+    <td><input type="time" data-time-start value="${esc(row.start)}" aria-label="Period ${row.period} start"></td>
+    <td><input type="time" data-time-end value="${esc(row.end)}" aria-label="Period ${row.period} end"></td>
+  </tr>`;
+}
+
+function readTimeRowsFromDom() {
+  const rows = [];
+  app.querySelectorAll("#setup-time-rows tbody tr").forEach((tr) => {
+    const type = tr.dataset.rowType;
+    if (type === "break") {
+      rows.push({
+        type: "break",
+        id: tr.dataset.rowId,
+        label: tr.querySelector("[data-time-label]")?.value.trim() || "Break",
+        start: tr.querySelector("[data-time-start]")?.value || "",
+        end: tr.querySelector("[data-time-end]")?.value || "",
+      });
+      return;
+    }
+    rows.push({
+      type: "period",
+      period: Number(tr.dataset.period),
+      label: tr.querySelector("[data-time-label]")?.textContent.trim() || `Period ${tr.dataset.period}`,
+      start: tr.querySelector("[data-time-start]")?.value || "",
+      end: tr.querySelector("[data-time-end]")?.value || "",
+    });
+  });
+  return rows;
+}
+
+function bindTimingSetup() {
+  app.querySelector("[data-action='back-to-mapping']").onclick = () => {
+    view = "mapping";
+    render();
+  };
+  app.querySelector("[data-action='open-schedule']").onclick = () => {
+    saveTimingSetup();
+    view = "schedule";
+    render();
+  };
+  app.querySelector("#setup-period-count").onchange = () => {
+    saveTimingSetup({ rerender: true });
+  };
+  app.querySelectorAll("#setup-days input").forEach((input) => {
+    input.onchange = () => saveTimingSetup();
+  });
+  app.querySelectorAll("[data-time-start], [data-time-end], [data-time-label]").forEach((input) => {
+    input.onchange = () => saveTimingSetup();
+  });
+  app.querySelector("[data-action='add-break']")?.addEventListener("click", () => {
+    saveTimingSetup();
+    const timeRows = readTimeRowsFromDom();
+    timeRows.push({
+      type: "break",
+      id: `break-${Date.now()}`,
+      label: "Break",
+      start: "",
+      end: "",
+    });
+    applyTimingSetup(timeRows);
+    render();
+  });
+  app.querySelectorAll("[data-remove-break]").forEach((button) => {
+    button.onclick = () => {
+      const timeRows = readTimeRowsFromDom();
+      timeRows.splice(Number(button.dataset.removeBreak), 1);
+      applyTimingSetup(timeRows);
+      render();
+    };
+  });
+}
+
+function applyTimingSetup(timeRows) {
+  const synced = syncSetupFromTimeRows(timeRows);
+  const current = normalizeSchedule(project).setup;
+  project.schedule.setup = {
+    ...current,
+    workingDays: [...app.querySelectorAll("#setup-days input:checked")].map((input) => input.value),
+    ...synced,
+  };
+  if (!project.schedule.setup.workingDays.length) project.schedule.setup.workingDays = [...WEEK_DAYS];
+  normalizeSchedule(project);
+  save();
+}
+
+function saveTimingSetup(options = {}) {
+  const periods = Math.min(12, Math.max(1, Number(app.querySelector("#setup-period-count")?.value) || 6));
+  let timeRows = readTimeRowsFromDom();
+  if (!timeRows.length) timeRows = normalizeSchedule(project).setup.timeRows;
+  timeRows = adjustTimeRowsForPeriodCount(timeRows, periods);
+  applyTimingSetup(timeRows);
+  if (options.rerender) render();
+}
+
+function renderSchedule() {
+  const schedule = normalizeSchedule(project);
+  const setup = schedule.setup;
+  if (!project.rows.some((row) => row.id === scheduleRowId)) scheduleRowId = project.rows[0]?.id || null;
+  if (!setup.workingDays.includes(scheduleDay)) scheduleDay = setup.workingDays[0] || "Monday";
+  const selectedRow = project.rows.find((row) => row.id === scheduleRowId);
+  const assignments = sectionAssignments(project, scheduleRowId);
+  const columns = scheduleGridColumns(setup);
+  const colTemplate = scheduleColumnTemplate(columns);
+  const query = scheduleSearch.trim().toLowerCase();
+  const filtered = query
+    ? assignments.filter((assignment) => (
+      assignment.staff.toLowerCase().includes(query)
+      || assignment.title.toLowerCase().includes(query)
+      || assignment.role.toLowerCase().includes(query)
+    ))
+    : assignments;
+  const visible = filtered.slice(0, scheduleVisibleCount);
+  const hiddenCount = Math.max(0, filtered.length - scheduleVisibleCount);
+
+  app.innerHTML = `
+    <div class="map-page">
+      <div class="map-shell">
+        <header class="map-header" role="toolbar" aria-label="Schedule tools">
+          <div class="map-header-left">
+            <p class="map-step"><span class="map-step-dot" aria-hidden="true"></span>Step 2 · Schedule</p>
+            <h1 class="map-summary-project">${esc(project.name)}</h1>
+          </div>
+          <div class="map-header-actions">
+            <button type="button" class="btn btn--secondary btn--sm" data-action="edit-timings">Edit timings</button>
+            <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
+          </div>
+        </header>
+
+        <main class="schedule-page" aria-label="Timetable scheduler">
+          <section class="schedule-controls">
+            <label>
+              <span>Section</span>
+              <select id="schedule-section">
+                ${project.rows.map((row) => `<option value="${row.id}" ${row.id === scheduleRowId ? "selected" : ""}>${esc(sectionLabel(row))}</option>`).join("")}
+              </select>
+            </label>
+            <div class="schedule-day-tabs" role="tablist" aria-label="Weekday">
+              ${setup.workingDays.map((day) => `<button type="button" class="${day === scheduleDay ? "active" : ""}" data-schedule-day="${day}">${day}</button>`).join("")}
+            </div>
+            <span class="schedule-period-badge">${setup.periodsPerDay} period${setup.periodsPerDay === 1 ? "" : "s"} per day</span>
+          </section>
+
+          <section class="schedule-planner">
+            <section class="schedule-availability-panel" aria-label="Faculty availability for ${esc(scheduleDay)}">
+              <div class="schedule-card-head">
+                <h2>${esc(scheduleDay)} availability</h2>
+                <p>Drag green period boxes into the timetable. Click a green box to mark that staff member busy.</p>
+              </div>
+              <div class="schedule-availability-toolbar">
+                <label class="schedule-availability-search">
+                  <span class="visually-hidden">Search faculty</span>
+                  <input id="schedule-availability-search" type="search" value="${esc(scheduleSearch)}" placeholder="Search staff or subject…" aria-label="Search faculty availability">
+                </label>
+                <span class="schedule-availability-meta">${filtered.length ? `Showing ${visible.length} of ${filtered.length}` : "No matches"}</span>
+              </div>
+              ${filtered.length ? `
+                <div class="schedule-availability-scroll">
+                  <div class="schedule-availability-row schedule-availability-track">
+                    <div class="schedule-staff-card-meta schedule-track-spacer" aria-hidden="true"></div>
+                    <div class="schedule-period-boxes" style="grid-template-columns:${colTemplate}">
+                      ${columns.map((column) => `<span class="schedule-track-label ${column.type === "break" ? "is-break" : ""}">${esc(column.label)}</span>`).join("")}
+                    </div>
+                  </div>
+                  ${visible.map((assignment) => renderAssignmentAvailability(assignment, columns, selectedRow)).join("")}
+                </div>
+                ${hiddenCount ? `<button type="button" class="btn btn--secondary btn--sm schedule-show-more" data-action="show-more-availability">Show ${Math.min(7, hiddenCount)} more</button>` : ""}
+              ` : `<p class="schedule-empty">${assignments.length ? "No faculty match your search." : "No mapped staff for this section."}</p>`}
+            </section>
+
+            <section class="schedule-grid-card" aria-label="Timetable grid">
+              <div class="schedule-card-head">
+                <h2>${esc(selectedRow ? sectionLabel(selectedRow) : "Section timetable")}</h2>
+                <p>Selected day is highlighted. Double-click a filled teaching cell to clear it.</p>
+              </div>
+              <div class="schedule-grid-wrap">
+                <table class="schedule-grid">
+                  <thead>
+                    <tr>
+                      <th scope="col">Day</th>
+                      ${columns.map((column) => `<th scope="col" class="${column.type === "break" ? "schedule-break-col" : ""}">${esc(column.label)}${column.time ? `<small>${esc(column.time)}</small>` : ""}</th>`).join("")}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${setup.workingDays.map((day) => renderScheduleDayRow(day, columns, scheduleRowId)).join("")}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        </main>
+
+        <footer class="map-footer">
+          <p><strong>Class Timetable V2</strong> · Step 2 of 2</p>
+          <p>Autosaved locally</p>
+        </footer>
+      </div>
+    </div>
+  `;
+  bindSchedule();
+}
+
+function renderAssignmentAvailability(assignment, columns, selectedRow) {
+  const colTemplate = scheduleColumnTemplate(columns);
+  return `
+    <div class="schedule-availability-row">
+      <div class="schedule-staff-card-meta">
+        <strong>${esc(assignment.staff)}</strong>
+        <span>${esc(assignment.title)} · ${esc(assignment.role)}</span>
+      </div>
+      <div class="schedule-period-boxes" style="grid-template-columns:${colTemplate}">
+        ${columns.map((column) => renderAvailabilityColumn(assignment, selectedRow, column)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderAvailabilityColumn(assignment, selectedRow, column) {
+  if (column.type === "break") {
+    return `<span class="schedule-period-spacer" aria-hidden="true"></span>`;
+  }
+  return renderAvailabilityBox(assignment, selectedRow, column.period);
+}
+
+function renderAvailabilityBox(assignment, selectedRow, period) {
+  const booked = staffBooking(project, assignment.staff, scheduleDay, period, selectedRow?.id);
+  const busy = isStaffBusy(project, assignment.staff, scheduleDay, period);
+  if (booked) {
+    return `<span class="schedule-period-box booked" title="Booked in ${esc(booked.section)}" aria-label="P${period} booked">Booked</span>`;
+  }
+  if (busy) {
+    return `<button type="button" class="schedule-period-box busy" data-toggle-busy="${esc(assignment.staff)}" data-period="${period}" title="Marked busy. Click to make available." aria-label="P${period} busy">Busy</button>`;
+  }
+  if (selectedRow && assignmentPlaced(project, selectedRow.id, scheduleDay, assignment.columnId, period)) {
+    return `<span class="schedule-period-box assigned" aria-label="P${period} assigned">Assigned</span>`;
+  }
+  return `<button type="button" class="schedule-period-box available" draggable="true"
+    data-drag-assignment="1"
+    data-column-id="${assignment.columnId}"
+    data-staff="${esc(assignment.staff)}"
+    data-title="${esc(assignment.title)}"
+    data-role="${esc(assignment.role)}"
+    data-kind="${esc(assignment.kind)}"
+    data-period="${period}"
+    data-toggle-busy="${esc(assignment.staff)}"
+    title="Drag to schedule, or click to mark busy"
+    aria-label="P${period} available">P${period}</button>`;
+}
+
+function renderScheduleDayRow(day, columns, rowId) {
+  const rowClass = day === scheduleDay ? "selected" : "inactive";
+  return `<tr class="${rowClass}">
+    <th scope="row">${esc(day)}</th>
+    ${columns.map((column) => {
+      if (column.type === "break") return `<td class="schedule-break-cell">${esc(column.label)}</td>`;
+      const slot = getSlot(project, rowId, day, column.period);
+      return `<td class="schedule-drop-cell ${slot ? "filled" : ""}" data-drop-day="${day}" data-drop-period="${column.period}" data-drop-row="${rowId}">
+        ${slot ? `<div class="schedule-slot" draggable="true" data-slot-row="${rowId}" data-slot-day="${day}" data-slot-period="${column.period}">
+          <strong>${esc(slot.title)}</strong>
+          <span>${esc(slot.staff)}</span>
+          <em>${esc(slot.role)}</em>
+        </div>` : `<span class="schedule-drop-hint">Drop</span>`}
+      </td>`;
+    }).join("")}
+  </tr>`;
+}
+
+function bindSchedule() {
+  app.querySelector("[data-action='edit-timings']").onclick = () => {
+    view = "timingSetup";
+    render();
+  };
+  app.querySelector("[data-action='back-to-mapping']").onclick = () => {
+    view = "mapping";
+    render();
+  };
+  app.querySelector("#schedule-section").onchange = (event) => {
+    scheduleRowId = event.target.value;
+    scheduleVisibleCount = 7;
+    render();
+  };
+  app.querySelectorAll("[data-schedule-day]").forEach((button) => {
+    button.onclick = () => {
+      scheduleDay = button.dataset.scheduleDay;
+      render();
+    };
+  });
+  const searchInput = app.querySelector("#schedule-availability-search");
+  if (searchInput) {
+    searchInput.oninput = () => {
+      scheduleSearch = searchInput.value;
+      scheduleVisibleCount = 7;
+      render();
+      const next = app.querySelector("#schedule-availability-search");
+      if (next) {
+        next.focus();
+        const len = next.value.length;
+        next.setSelectionRange(len, len);
+      }
+    };
+  }
+  app.querySelector("[data-action='show-more-availability']")?.addEventListener("click", () => {
+    scheduleVisibleCount += 7;
+    render();
+  });
+  app.querySelectorAll("[data-toggle-busy]").forEach((button) => {
+    button.onclick = () => {
+      if (scheduleDragActive) return;
+      toggleStaffBusy(project, button.dataset.toggleBusy, scheduleDay, button.dataset.period);
+      save();
+      render();
+    };
+  });
+  app.querySelectorAll("[data-drag-assignment]").forEach((button) => {
+    button.addEventListener("dragstart", (event) => {
+      scheduleDragActive = true;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/json", JSON.stringify({
+        type: "assignment",
+        columnId: button.dataset.columnId,
+        staff: button.dataset.staff,
+        title: button.dataset.title,
+        role: button.dataset.role,
+        kind: button.dataset.kind,
+        period: Number(button.dataset.period),
+      }));
+      button.classList.add("is-dragging");
+    });
+    button.addEventListener("dragend", () => {
+      button.classList.remove("is-dragging");
+      setTimeout(() => { scheduleDragActive = false; }, 0);
+    });
+  });
+  app.querySelectorAll("[data-slot-row]").forEach((slot) => {
+    slot.addEventListener("dragstart", (event) => {
+      const current = getSlot(project, slot.dataset.slotRow, slot.dataset.slotDay, slot.dataset.slotPeriod);
+      if (!current) return;
+      scheduleDragActive = true;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/json", JSON.stringify({
+        type: "move",
+        fromRowId: slot.dataset.slotRow,
+        fromDay: slot.dataset.slotDay,
+        fromPeriod: Number(slot.dataset.slotPeriod),
+        assignment: current,
+      }));
+    });
+    slot.addEventListener("dragend", () => {
+      setTimeout(() => { scheduleDragActive = false; }, 0);
+    });
+  });
+  app.querySelectorAll("[data-drop-row]").forEach((cell) => {
+    cell.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      cell.classList.add("drop-over");
+    });
+    cell.addEventListener("dragleave", () => cell.classList.remove("drop-over"));
+    cell.addEventListener("drop", (event) => {
+      event.preventDefault();
+      cell.classList.remove("drop-over");
+      handleScheduleDrop(cell, event);
+    });
+    cell.addEventListener("dblclick", () => {
+      clearSlot(project, cell.dataset.dropRow, cell.dataset.dropDay, cell.dataset.dropPeriod);
+      save();
+      render();
+    });
+  });
+}
+
+function handleScheduleDrop(cell, event) {
+  let data = null;
+  try {
+    data = JSON.parse(event.dataTransfer.getData("application/json"));
+  } catch {
+    return;
+  }
+  const rowId = cell.dataset.dropRow;
+  const day = cell.dataset.dropDay;
+  const period = Number(cell.dataset.dropPeriod);
+  const assignment = data.type === "move" ? data.assignment : data;
+  if (!assignment?.staff) return;
+  if (day !== scheduleDay) {
+    toast(`Drop on the selected day (${scheduleDay}) or switch to ${day}.`, "error");
+    return;
+  }
+  if (data.type === "assignment" && data.period !== period) {
+    toast(`Drop the P${data.period} box into a P${data.period} timetable cell.`, "error");
+    return;
+  }
+  if (data.type === "assignment" && assignmentPlaced(project, rowId, day, data.columnId, period)) {
+    return;
+  }
+  const existing = getSlot(project, rowId, day, period);
+  if (existing && data.type === "assignment") {
+    toast("This cell is already filled.", "error");
+    return;
+  }
+  if (isStaffBusy(project, assignment.staff, day, period)) {
+    toast(`${assignment.staff} is marked busy for ${day} P${period}.`, "error");
+    return;
+  }
+  const booked = staffBooking(project, assignment.staff, day, period, rowId);
+  if (booked) {
+    toast(`${assignment.staff} is already assigned to ${booked.section} for ${day} P${period}.`, "error");
+    return;
+  }
+  if (data.type === "move") clearSlot(project, data.fromRowId, data.fromDay, data.fromPeriod);
+  setSlot(project, rowId, day, period, {
+    columnId: assignment.columnId,
+    staff: assignment.staff,
+    title: assignment.title,
+    role: assignment.role,
+    kind: assignment.kind,
+  });
+  save();
+  render();
+}
+
 function renderMenu() {
   const fromColumn = project.columns.find((item) => item.id === menu?.columnId);
   const canSupport = fromColumn && isMappingColumn(fromColumn);
@@ -345,11 +1015,33 @@ function bind() {
     button.onclick = () => runAction(button.dataset.action);
   });
 
+  const importInput = app.querySelector("#import-mapping-file");
+  if (importInput) {
+    importInput.onchange = async () => {
+      const file = importInput.files?.[0];
+      importInput.value = "";
+      if (!file) return;
+      try {
+        const imported = await importProjectJson(file);
+        project = imported;
+        scheduleRowId = project.rows[0]?.id || null;
+        selected = null;
+        closeMenu();
+        save();
+        toast(`Imported “${project.name}”.`);
+        render();
+      } catch (error) {
+        toast(error.message || "Import failed.", "error");
+      }
+    };
+  }
+
   app.querySelectorAll("[data-open]").forEach((button) => {
     button.onclick = () => {
       const next = loadProject(button.dataset.open);
       if (!next) return toast("Could not open that project.", "error");
       project = next;
+      scheduleRowId = project.rows[0]?.id || null;
       selected = null;
       closeMenu();
       render();
@@ -365,6 +1057,7 @@ function bind() {
       if (project.id === id) {
         const remaining = listProjects()[0];
         project = remaining ? loadProject(remaining.id) : createProject();
+        scheduleRowId = project.rows[0]?.id || null;
         if (!remaining) save();
       }
       toast("Project deleted.");
@@ -463,6 +1156,7 @@ function bind() {
       if (!row) return;
       row.cells[input.dataset.cellCol] = input.value;
       save();
+      refreshMappingSuggestions();
     });
     input.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
@@ -511,6 +1205,12 @@ function bind() {
 }
 
 function runAction(name) {
+  if (name === "toggle-files-menu") {
+    filesMenuOpen = !filesMenuOpen;
+    render();
+    return;
+  }
+  if (name !== "import") filesMenuOpen = false;
   if (name === "add-rows") {
     const answer = prompt("How many rows do you want to add?", "1");
     if (answer == null) return;
@@ -522,12 +1222,59 @@ function runAction(name) {
       toast(error.message, "error");
     }
   }
+  if (name === "fill-test") {
+    if (!confirm("Replace the current mapping with sample test data (12 sections, subjects, labs, and staff)?")) return;
+    fillTestMappingData(project);
+    delete project.schedule;
+    scheduleRowId = project.rows[0]?.id || null;
+    selected = null;
+    closeMenu();
+    save();
+    toast("Test mapping loaded.");
+    render();
+  }
+  if (name === "import") {
+    filesMenuOpen = false;
+    app.querySelector("#import-mapping-file")?.click();
+  }
   if (name === "export") exportProjectJson(project);
+  if (name === "export-pdf") {
+    try {
+      const filename = exportMappingPdf(project);
+      toast(`Print dialog opened for ${filename}.`);
+    } catch (error) {
+      toast(error.message || "Could not open the PDF export.", "error");
+    }
+  }
+  if (name === "summary") {
+    selected = null;
+    closeMenu();
+    view = "summary";
+    render();
+  }
+  if (name === "start-step-2") {
+    const issues = fullMappingIssues(project);
+    if (issues.length) {
+      toast("Fill every mapping cell before moving to Step 2.", "error");
+      alert(`Fill every mapping cell before moving to Step 2:\n\n${issues.slice(0, 12).join("\n")}${issues.length > 12 ? `\n...and ${issues.length - 12} more.` : ""}`);
+      return;
+    }
+    normalizeSchedule(project);
+    scheduleRowId = project.rows[0]?.id || null;
+    scheduleDay = project.schedule.setup.workingDays[0] || "Monday";
+    selected = null;
+    closeMenu();
+    save();
+    view = "timingSetup";
+    render();
+  }
   if (name === "new-project") {
     if (!confirm("Start a new blank mapping project? Your current project stays saved in this browser.")) return;
     project = createProject();
     save();
+    scheduleRowId = project.rows[0]?.id || null;
     selected = null;
+    view = "mapping";
     render();
   }
 }
@@ -723,6 +1470,17 @@ document.addEventListener("keydown", (event) => {
     closeMenu();
     render();
   }
+  if (event.key === "Escape" && filesMenuOpen) {
+    filesMenuOpen = false;
+    render();
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!filesMenuOpen) return;
+  if (event.target.closest?.(".map-file-menu-wrap")) return;
+  filesMenuOpen = false;
+  render();
 });
 
 render();

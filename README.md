@@ -6,7 +6,10 @@ Browser-based utilities for educators. Hosted on Firebase at [teacherstoolkit-nr
 
 | Tool | Path | Description |
 |------|------|-------------|
-| **Class Timetable** | `/class-timetable/` | Plan section timetables with instant room & faculty clash detection |
+| **Class Timetable** | `/class-timetable-v2/` | Map sections to subjects and staff, then schedule with clash checks |
+| **Teaching Lesson Plan Manager** | `/lesson-plan-manager/` | Plan semesters, teaching sessions, and syllabus coverage |
+| **Classroom Word Hunt** | `/wordhunt/` | Run engaging word-search activities for your class |
+| **Classroom Word Builder** | `/word-builder/` | Project letter tiles and build vocabulary words together |
 
 ## Local development
 
@@ -16,7 +19,7 @@ Serve the `public/` folder with any static server:
 npx serve public
 ```
 
-Open `http://localhost:3000` for the hub and `http://localhost:3000/class-timetable/` for the timetable tool.
+Open `http://localhost:3000` for the hub and `http://localhost:3000/class-timetable-v2/` for the timetable tool.
 
 ## Deploy
 
@@ -31,20 +34,18 @@ public/
   index.html              # Toolkit hub
   about.html              # About the creator
   assets/shared/          # Shared CSS, tools manifest, Firebase config
-  class-timetable/        # Class Timetable subproject (Phase 1)
+  class-timetable-v2/     # Class Timetable tool
 firebase.json
 .firebaserc
 ```
 
-## Class Timetable — Phase 1 features
+## Class Timetable features
 
-- Create/open/delete/duplicate timetables (localStorage + JSON import/export)
-- Setup wizard: university timings, sections/rooms, subjects/faculty with bulk entry
-- Manual grid assignment with drag-and-drop
-- Real-time faculty & room clash alerts
-- Consecutive lecture constraint warnings
-- Views: section, faculty, room, subject-wise allotment
-- Export PDF (print dialog)
+- Map class sections to subjects, labs, and staff
+- Configure period timings and faculty availability
+- Drag-and-drop section scheduling with clash detection
+- Summary views and PDF export
+- Local storage plus JSON import/export
 
 Data is stored in the browser only (`localStorage`). Use Export JSON to share timetables between devices.
 

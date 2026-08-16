@@ -292,3 +292,170 @@ export function mappingIssues(project) {
   if (!mappingCols.length) issues.push("Add at least one subject or lab column before scheduling.");
   return issues;
 }
+
+/** Replace mapping with a fixed demo dataset for Step 1 → Step 2 testing. */
+export function fillTestMappingData(project) {
+  const sections = [
+    ["1", "CSE-1"], ["2", "CSE-2"], ["3", "CSE-3"], ["4", "CSE-4"],
+    ["5", "IT-1"], ["6", "IT-2"], ["7", "IT-3"], ["8", "IT-4"],
+    ["9", "CSM-1"], ["10", "CSM-2"], ["11", "CSM-3"], ["12", "CSM-4"],
+  ];
+
+  // Each faculty teaches 2–4 sections of a subject; linked labs reuse the same faculty.
+  const subjectDefs = [
+    {
+      title: "CM",
+      faculty: ["Dr. Ananya Rao", "Dr. Meera Kapoor", "Prof. Sunil Bhat"],
+    },
+    {
+      title: "PC",
+      faculty: ["Prof. Vikram Shah", "Dr. Anita Desai", "Mr. Karan Malhotra"],
+    },
+    {
+      title: "WD",
+      faculty: ["Ms. Neha Patel", "Mr. Dev Krishnan", "Ms. Rhea Sen"],
+    },
+    {
+      title: "CTLR",
+      faculty: ["Dr. Arjun Nair", "Ms. Pooja Verma", "Prof. Nitin Kale"],
+    },
+    {
+      title: "PP",
+      faculty: ["Mr. Rohan Das", "Dr. Ishita Ghosh", "Ms. Tanya Paul"],
+    },
+    {
+      title: "GenAI",
+      faculty: ["Dr. Sneha Iyer", "Mr. Harsh Vardhan", "Dr. Leela Krishnan"],
+    },
+  ];
+
+  const labDefs = [
+    {
+      title: "WD",
+      linkSubject: "WD",
+      supportFaculty: ["Mr. Imran Khan", "Ms. Asha Reddy", "Mr. Vivek Rao"],
+    },
+    {
+      title: "PP",
+      linkSubject: "PP",
+      supportFaculty: ["Ms. Fatima Begum", "Mr. Nikhil Jain", "Ms. Divya Shah"],
+    },
+    {
+      title: "GenAI",
+      linkSubject: "GenAI",
+      supportFaculty: ["Mr. Aditya Joshi", "Ms. Ritu Anand", "Mr. Samir Qureshi"],
+    },
+    {
+      title: "DT",
+      linkSubject: null,
+      faculty: ["Ms. Lakshmi Narayan", "Mr. Pranav Kulkarni", "Dr. Geeta Nair"],
+      supportFaculty: ["Mr. Karthik Bose", "Ms. Shreya Menon", "Mr. Omar Siddiqui"],
+    },
+  ];
+
+  const assignByLoad = (facultyPool, sectionCount = sections.length, salt = 0) => {
+    // Split sections into chunks of 2–4 so each faculty covers a valid load.
+    const parts = [];
+    let remaining = sectionCount;
+    while (remaining > 0) {
+      let size = Math.min(4, remaining);
+      if (remaining > 4 && remaining - size < 2) size = remaining - 2;
+      if (size < 2 && remaining >= 2) size = 2;
+      parts.push(size);
+      remaining -= size;
+    }
+    const assignment = [];
+    parts.forEach((size, index) => {
+      const faculty = facultyPool[(index + salt) % facultyPool.length];
+      for (let i = 0; i < size; i += 1) assignment.push(faculty);
+    });
+    return assignment;
+  };
+
+  const columns = createFixedColumns();
+  const subjectByTitle = {};
+
+  subjectDefs.forEach((def, salt) => {
+    const subjectKey = uid("subj");
+    const column = {
+      id: uid("col"),
+      kind: "subject",
+      title: def.title,
+      subjectKey,
+      baseKind: "subject",
+      width: COLUMN_WIDTH.subject,
+    };
+    subjectByTitle[def.title] = {
+      column,
+      staffBySection: assignByLoad(def.faculty, sections.length, salt),
+    };
+    columns.push(column);
+  });
+
+  labDefs.forEach((def, salt) => {
+    const linked = def.linkSubject ? subjectByTitle[def.linkSubject] : null;
+    const subjectKey = linked?.column.subjectKey || uid("subj");
+    const lab = {
+      id: uid("col"),
+      kind: "lab",
+      title: def.title,
+      subjectKey,
+      baseKind: "lab",
+      width: COLUMN_WIDTH.lab,
+    };
+    const support = {
+      id: uid("col"),
+      kind: "support",
+      title: def.title,
+      subjectKey,
+      baseKind: "lab",
+      width: COLUMN_WIDTH.support,
+    };
+
+    if (linked) {
+      const subjectIndex = columns.findIndex((item) => item.id === linked.column.id);
+      let insertAt = subjectIndex + 1;
+      while (
+        insertAt < columns.length
+        && columns[insertAt].subjectKey === subjectKey
+        && !(columns[insertAt].kind === "lab"
+          || (columns[insertAt].kind === "support" && columns[insertAt].baseKind === "lab"))
+      ) {
+        insertAt += 1;
+      }
+      columns.splice(insertAt, 0, lab, support);
+    } else {
+      columns.push(lab, support);
+    }
+
+    def._labId = lab.id;
+    def._supportId = support.id;
+    // Linked labs reuse the subject faculty for each section.
+    def._labStaffBySection = linked
+      ? linked.staffBySection
+      : assignByLoad(def.faculty, sections.length, salt + 1);
+    def._supportBySection = assignByLoad(def.supportFaculty, sections.length, salt + 2);
+  });
+
+  const rows = sections.map(([sectionId, sectionName], sectionIndex) => {
+    const cells = {
+      "col-section-id": sectionId,
+      "col-section-name": sectionName,
+    };
+    subjectDefs.forEach((def) => {
+      const entry = subjectByTitle[def.title];
+      cells[entry.column.id] = entry.staffBySection[sectionIndex];
+    });
+    labDefs.forEach((def) => {
+      cells[def._labId] = def._labStaffBySection[sectionIndex];
+      cells[def._supportId] = def._supportBySection[sectionIndex];
+    });
+    return { id: uid("row"), cells };
+  });
+
+  project.name = project.name || "Test class timetable";
+  project.columns = columns;
+  project.rows = rows;
+  project.schemaVersion = PROJECT_VERSION;
+  return project;
+}

@@ -49,3 +49,38 @@ export function exportProjectJson(project) {
   anchor.click();
   URL.revokeObjectURL(anchor.href);
 }
+
+export function importProjectJson(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error("Choose a mapping JSON file."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read that file."));
+    reader.onload = () => {
+      try {
+        const raw = JSON.parse(String(reader.result || ""));
+        const project = normalizeProject(raw);
+        if (!project || !Array.isArray(project.columns) || !Array.isArray(project.rows)) {
+          reject(new Error("That file is not a valid Class Timetable V2 mapping."));
+          return;
+        }
+        // Treat import as a distinct project copy in this browser.
+        project.id = `project-${crypto.randomUUID().slice(0, 8)}`;
+        project.name = project.name || file.name.replace(/\.mapping\.json$/i, "").replace(/\.json$/i, "") || "Imported mapping";
+        const now = new Date().toISOString();
+        project.meta = {
+          createdAt: project.meta?.createdAt || now,
+          updatedAt: now,
+          importedAt: now,
+          importedFrom: file.name,
+        };
+        resolve(project);
+      } catch {
+        reject(new Error("Could not parse that JSON mapping file."));
+      }
+    };
+    reader.readAsText(file);
+  });
+}

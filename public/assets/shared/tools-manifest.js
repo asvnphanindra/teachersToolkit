@@ -1,20 +1,12 @@
 /** Single source of truth for hub tool cards. Add new subprojects here. */
 export const tools = [
   {
-    slug: "class-timetable",
-    name: "Class Timetable",
-    description: "Plan timetables · detect room & faculty clashes instantly",
-    status: "live",
-    href: "class-timetable/",
-    icon: "📅",
-  },
-  {
     slug: "class-timetable-v2",
-    name: "Class Timetable V2",
+    name: "Class Timetable",
     description: "Map sections to subjects and staff, then schedule",
     status: "live",
     href: "class-timetable-v2/",
-    icon: "🗂️",
+    icon: "📅",
   },
   {
     slug: "lesson-plan-manager",
