@@ -60,10 +60,19 @@
     document.getElementById("creator-link").textContent = brand.creatorName;
 
     const container = document.getElementById("tool-cards");
+    const badgeFor = (status) => {
+      if (status === "live") return { className: "badge badge--live", label: "Available" };
+      if (status === "under-development") {
+        return { className: "badge badge--dev", label: "Under development" };
+      }
+      return { className: "badge badge--soon", label: "Coming soon" };
+    };
+
     tools.forEach((tool) => {
       const isLive = tool.status === "live";
+      const badge = badgeFor(tool.status);
       const inner = `
-        <span class="badge ${isLive ? "badge--live" : "badge--soon"}">${isLive ? "Available" : "Coming soon"}</span>
+        <span class="${badge.className}">${badge.label}</span>
         <span class="tool-tile-icon" aria-hidden="true">${tool.icon || "📦"}</span>
         <h3>${tool.name}</h3>
         <p>${tool.description}</p>

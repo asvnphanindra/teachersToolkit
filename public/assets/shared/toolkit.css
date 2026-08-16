@@ -260,6 +260,7 @@ a.tool-card--tile:hover {
 }
 
 .badge--live { background: var(--color-success-bg); color: var(--color-success); }
+.badge--dev { background: var(--color-accent-soft); color: var(--color-accent); }
 .badge--soon { background: var(--color-muted-bg); color: var(--color-text-muted); }
 
 /* About page */
