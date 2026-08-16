@@ -4,7 +4,7 @@ export const tools = [
     slug: "class-timetable-v2",
     name: "Class Timetable",
     description: "Map sections to subjects and staff, then schedule",
-    status: "under-development",
+    status: "live",
     href: "class-timetable-v2/",
     icon: "📅",
   },
