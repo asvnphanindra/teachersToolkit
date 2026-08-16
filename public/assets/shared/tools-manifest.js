@@ -12,7 +12,7 @@ export const tools = [
     slug: "lesson-plan-manager",
     name: "Teaching Lesson Plan Manager",
     description: "Plan semesters, teaching sessions, and syllabus coverage",
-    status: "under-development",
+    status: "live",
     href: "lesson-plan-manager/",
     icon: "📚",
   },
