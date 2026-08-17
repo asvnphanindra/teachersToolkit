@@ -6,10 +6,10 @@
   <title>About — Teacher's Toolkit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/shared/toolkit.css">
 </head>
-<body>
+<body class="page-about">
   <header class="site-header">
     <div class="header-inner">
       <a class="site-logo" href="./">Teacher's Toolkit</a>
@@ -23,6 +23,7 @@
   <main class="about-page">
     <a class="back-link" href="./">&larr; Back to tools</a>
     <section class="about-section about-section--page">
+      <img class="about-avatar" id="creator-photo" src="assets/shared/Phani.png" alt="" width="96" height="96">
       <p class="about-greeting" id="greeting"></p>
       <h1 id="about-heading">About the creator</h1>
       <div id="bio-content"></div>
@@ -41,6 +42,7 @@
 
     document.getElementById("greeting").textContent =
       `${brand.creatorName} · ${brand.creatorTitle}`;
+    document.getElementById("creator-photo").alt = brand.creatorName;
     document.getElementById("bio-content").innerHTML = brand.bio
       .map((p) => `<p>${p}</p>`)
       .join("");
