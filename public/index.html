@@ -7,7 +7,7 @@
   <title>Teacher's Toolkit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/shared/toolkit.css">
 </head>
 <body class="page-home">
@@ -21,23 +21,20 @@
     </div>
   </header>
 
-  <main class="home-main">
-    <section class="home-intro" aria-labelledby="hero-heading">
-      <div class="home-intro-text">
-        <p class="home-tagline" id="tagline">Simple tools for smarter planning</p>
-        <h1 id="hero-heading">Plan with confidence</h1>
-        <p class="home-subtext" id="subtext">Manual timetable checks for room and faculty clashes take hours. This toolkit helps you verify schedules instantly so you can focus on teaching.</p>
-        <p class="home-creator" id="creator-line">Built by Phanindra, Educator &amp; Developer</p>
-        <ul class="home-pillars" id="pillars">
-          <li><span class="pillar-icon" aria-hidden="true">⏱</span><span>Save time on repetitive verification</span></li>
-          <li><span class="pillar-icon" aria-hidden="true">✓</span><span>Catch scheduling errors early</span></li>
-          <li><span class="pillar-icon" aria-hidden="true">🌐</span><span>Free, browser-based — no install</span></li>
-        </ul>
+  <main>
+    <section class="home-hero" aria-labelledby="hero-heading">
+      <p class="home-brand" id="home-brand">Teacher's Toolkit</p>
+      <h1 id="hero-heading">Plan with confidence</h1>
+      <p class="home-subtext" id="subtext">Browser-based utilities that cut hours of manual timetable verification into minutes.</p>
+      <div class="home-cta">
+        <a class="btn btn--primary" href="#tools">Explore tools</a>
+        <a class="btn btn--secondary" href="about.html">About</a>
       </div>
-      <section class="home-tools" id="tools" aria-labelledby="tools-heading">
-        <h2 id="tools-heading">Available tools</h2>
-        <div class="tool-cards tool-cards--grid" id="tool-cards"></div>
-      </section>
+    </section>
+
+    <section class="home-tools" id="tools" aria-labelledby="tools-heading">
+      <h2 id="tools-heading">Available tools</h2>
+      <div class="tool-cards tool-cards--grid" id="tool-cards"></div>
     </section>
   </main>
 
@@ -52,11 +49,9 @@
   <script type="module">
     import { tools, brand } from "./assets/shared/tools-manifest.js";
 
-    document.getElementById("tagline").textContent = brand.tagline;
+    document.getElementById("home-brand").textContent = brand.siteName;
     document.getElementById("hero-heading").textContent = brand.headline;
     document.getElementById("subtext").textContent = brand.subtext;
-    document.getElementById("creator-line").textContent =
-      `Built by ${brand.creatorName}, ${brand.creatorTitle}`;
     document.getElementById("creator-link").textContent = brand.creatorName;
 
     const container = document.getElementById("tool-cards");

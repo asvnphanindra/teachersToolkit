@@ -49,7 +49,7 @@ export const brand = {
   githubUrl: "https://github.com/asvnphanindra/teachersToolkit",
   tagline: "Simple tools for smarter planning",
   headline: "Plan with confidence",
-  subtext: "Browser-based utilities that cut hours of manual timetable verification.",
+  subtext: "Browser-based utilities that cut hours of manual timetable verification into minutes.",
   bio: [
     "I build practical, browser-based tools to reduce the administrative burden on teachers and academic planners.",
     "Teacher's Toolkit started from a simple goal: spend less time cross-checking schedules and more time supporting students.",
