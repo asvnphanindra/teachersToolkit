@@ -33,7 +33,6 @@ import { facultySummaryTables } from "./summary.js";
 import {
   WEEK_DAYS,
   adjustTimeRowsForPeriodCount,
-  assignmentPlaced,
   clearSlot,
   facultyTimetables,
   fullMappingIssues,
@@ -42,10 +41,11 @@ import {
   normalizeSchedule,
   scheduleColumnTemplate,
   scheduleGridColumns,
-  sectionAssignments,
   sectionLabel,
+  sectionStaffGroups,
   setSlot,
   staffBooking,
+  staffOptionsFor,
   syncSetupFromTimeRows,
   toggleStaffBusy,
 } from "./schedule.js";
@@ -67,6 +67,7 @@ let scheduleSearch = "";
 let scheduleVisibleCount = 7;
 let exportSectionId = "all";
 let exportStaffName = "all";
+let subjectChoice = null; // { rowId, day, period, staff, options }
 let menu = null; // { columnId, x, y }
 let selected = null; // { rowId, columnId }
 let fillDrag = null;
@@ -751,17 +752,19 @@ function renderSchedule() {
   if (!project.rows.some((row) => row.id === scheduleRowId)) scheduleRowId = project.rows[0]?.id || null;
   if (!setup.workingDays.includes(scheduleDay)) scheduleDay = setup.workingDays[0] || "Monday";
   const selectedRow = project.rows.find((row) => row.id === scheduleRowId);
-  const assignments = sectionAssignments(project, scheduleRowId);
+  const staffGroups = sectionStaffGroups(project, scheduleRowId);
   const columns = scheduleGridColumns(setup);
   const colTemplate = scheduleColumnTemplate(columns);
   const query = scheduleSearch.trim().toLowerCase();
   const filtered = query
-    ? assignments.filter((assignment) => (
-      assignment.staff.toLowerCase().includes(query)
-      || assignment.title.toLowerCase().includes(query)
-      || assignment.role.toLowerCase().includes(query)
+    ? staffGroups.filter((group) => (
+      group.staff.toLowerCase().includes(query)
+      || group.assignments.some((assignment) => (
+        assignment.title.toLowerCase().includes(query)
+        || assignment.role.toLowerCase().includes(query)
+      ))
     ))
-    : assignments;
+    : staffGroups;
   const visible = filtered.slice(0, scheduleVisibleCount);
   const hiddenCount = Math.max(0, filtered.length - scheduleVisibleCount);
 
@@ -799,7 +802,7 @@ function renderSchedule() {
             <section class="schedule-availability-panel" aria-label="Faculty availability for ${esc(scheduleDay)}">
               <div class="schedule-card-head">
                 <h2>${esc(scheduleDay)} availability</h2>
-                <p>Drag green period boxes into the timetable. Click a green box to mark that staff member busy.</p>
+                <p>One row per faculty member. Drag a green period box into the timetable, or click it to mark that period busy. When someone holds more than one subject here, you choose which one after the drop.</p>
               </div>
               <div class="schedule-availability-toolbar">
                 <label class="schedule-availability-search">
@@ -816,10 +819,10 @@ function renderSchedule() {
                       ${columns.map((column) => `<span class="schedule-track-label ${column.type === "break" ? "is-break" : ""}">${esc(column.label)}</span>`).join("")}
                     </div>
                   </div>
-                  ${visible.map((assignment) => renderAssignmentAvailability(assignment, columns, selectedRow)).join("")}
+                  ${visible.map((group) => renderStaffAvailability(group, columns, selectedRow)).join("")}
                 </div>
                 ${hiddenCount ? `<button type="button" class="btn btn--secondary btn--sm schedule-show-more" data-action="show-more-availability">Show ${Math.min(7, hiddenCount)} more</button>` : ""}
-              ` : `<p class="schedule-empty">${assignments.length ? "No faculty match your search." : "No mapped staff for this section."}</p>`}
+              ` : `<p class="schedule-empty">${staffGroups.length ? "No faculty match your search." : "No mapped staff for this section."}</p>`}
             </section>
 
             <section class="schedule-grid-card" aria-label="Timetable grid">
@@ -847,55 +850,82 @@ function renderSchedule() {
         ${renderFooter("schedule")}
       </div>
     </div>
+
+    ${subjectChoice ? renderSubjectChoice() : ""}
   `;
   bindSchedule();
 }
 
-function renderAssignmentAvailability(assignment, columns, selectedRow) {
+function staffSubjectLabel(group) {
+  return group.assignments
+    .map((assignment) => `${assignment.title} · ${assignment.role}`)
+    .join(" • ");
+}
+
+function renderStaffAvailability(group, columns, selectedRow) {
   const colTemplate = scheduleColumnTemplate(columns);
+  const multi = group.assignments.length > 1;
   return `
     <div class="schedule-availability-row">
       <div class="schedule-staff-card-meta">
-        <strong>${esc(assignment.staff)}</strong>
-        <span>${esc(assignment.title)} · ${esc(assignment.role)}</span>
+        <strong>${esc(group.staff)}</strong>
+        <span>${esc(staffSubjectLabel(group))}</span>
+        ${multi ? `<span class="schedule-staff-multi">${group.assignments.length} subjects · choose on drop</span>` : ""}
       </div>
       <div class="schedule-period-boxes" style="grid-template-columns:${colTemplate}">
-        ${columns.map((column) => renderAvailabilityColumn(assignment, selectedRow, column)).join("")}
+        ${columns.map((column) => renderAvailabilityColumn(group, selectedRow, column)).join("")}
       </div>
     </div>
   `;
 }
 
-function renderAvailabilityColumn(assignment, selectedRow, column) {
+function renderAvailabilityColumn(group, selectedRow, column) {
   if (column.type === "break") {
     return `<span class="schedule-period-spacer" aria-hidden="true"></span>`;
   }
-  return renderAvailabilityBox(assignment, selectedRow, column.period);
+  return renderAvailabilityBox(group, selectedRow, column.period);
 }
 
-function renderAvailabilityBox(assignment, selectedRow, period) {
-  const booked = staffBooking(project, assignment.staff, scheduleDay, period, selectedRow?.id);
-  const busy = isStaffBusy(project, assignment.staff, scheduleDay, period);
+function renderAvailabilityBox(group, selectedRow, period) {
+  const booked = staffBooking(project, group.staff, scheduleDay, period, selectedRow?.id);
+  const busy = isStaffBusy(project, group.staff, scheduleDay, period);
   if (booked) {
     return `<span class="schedule-period-box booked" title="Booked in ${esc(booked.section)}" aria-label="P${period} booked">Booked</span>`;
   }
   if (busy) {
-    return `<button type="button" class="schedule-period-box busy" data-toggle-busy="${esc(assignment.staff)}" data-period="${period}" title="Marked busy. Click to make available." aria-label="P${period} busy">Busy</button>`;
+    return `<button type="button" class="schedule-period-box busy" data-toggle-busy="${esc(group.staff)}" data-period="${period}" title="Marked busy. Click to make available." aria-label="P${period} busy">Busy</button>`;
   }
-  if (selectedRow && assignmentPlaced(project, selectedRow.id, scheduleDay, assignment.columnId, period)) {
-    return `<span class="schedule-period-box assigned" aria-label="P${period} assigned">Assigned</span>`;
+  const placed = selectedRow ? getSlot(project, selectedRow.id, scheduleDay, period) : null;
+  if (placed?.staff === group.staff) {
+    return `<span class="schedule-period-box assigned" title="${esc(placed.title)} · ${esc(placed.role)}" aria-label="P${period} assigned">Assigned</span>`;
   }
   return `<button type="button" class="schedule-period-box available" draggable="true"
     data-drag-assignment="1"
-    data-column-id="${assignment.columnId}"
-    data-staff="${esc(assignment.staff)}"
-    data-title="${esc(assignment.title)}"
-    data-role="${esc(assignment.role)}"
-    data-kind="${esc(assignment.kind)}"
+    data-staff="${esc(group.staff)}"
     data-period="${period}"
-    data-toggle-busy="${esc(assignment.staff)}"
+    data-toggle-busy="${esc(group.staff)}"
     title="Drag to schedule, or click to mark busy"
     aria-label="P${period} available">P${period}</button>`;
+}
+
+function renderSubjectChoice() {
+  const { staff, period, day, options } = subjectChoice;
+  return `<div class="schedule-choice-backdrop" data-cancel-choice="1"></div>
+    <div class="schedule-choice" role="dialog" aria-modal="true" aria-labelledby="subject-choice-title">
+      <h2 id="subject-choice-title">Which subject for ${esc(staff)}?</h2>
+      <p>${esc(day)} · P${period}. This faculty member holds ${options.length} subjects in this section.</p>
+      <div class="schedule-choice-options">
+        ${options.map((option, index) => `
+          <button type="button" data-choose-subject="${index}">
+            <strong>${esc(option.title)}</strong>
+            <span>${esc(option.role)}</span>
+          </button>
+        `).join("")}
+      </div>
+      <div class="schedule-choice-actions">
+        <button type="button" class="btn btn--secondary btn--sm" data-cancel-choice="1">Cancel</button>
+      </div>
+    </div>`;
 }
 
 function renderScheduleDayRow(day, columns, rowId) {
@@ -969,12 +999,8 @@ function bindSchedule() {
       scheduleDragActive = true;
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("application/json", JSON.stringify({
-        type: "assignment",
-        columnId: button.dataset.columnId,
+        type: "staff",
         staff: button.dataset.staff,
-        title: button.dataset.title,
-        role: button.dataset.role,
-        kind: button.dataset.kind,
         period: Number(button.dataset.period),
       }));
       button.classList.add("is-dragging");
@@ -1019,6 +1045,32 @@ function bindSchedule() {
       render();
     });
   });
+  app.querySelectorAll("[data-cancel-choice]").forEach((element) => {
+    element.onclick = () => {
+      subjectChoice = null;
+      render();
+    };
+  });
+  app.querySelectorAll("[data-choose-subject]").forEach((button) => {
+    button.onclick = () => {
+      const option = subjectChoice?.options[Number(button.dataset.chooseSubject)];
+      if (!option) return;
+      placeAssignment(subjectChoice.rowId, subjectChoice.day, subjectChoice.period, option);
+      subjectChoice = null;
+      save();
+      render();
+    };
+  });
+}
+
+function placeAssignment(rowId, day, period, assignment) {
+  setSlot(project, rowId, day, period, {
+    columnId: assignment.columnId,
+    staff: assignment.staff,
+    title: assignment.title,
+    role: assignment.role,
+    kind: assignment.kind,
+  });
 }
 
 function handleScheduleDrop(cell, event) {
@@ -1031,42 +1083,50 @@ function handleScheduleDrop(cell, event) {
   const rowId = cell.dataset.dropRow;
   const day = cell.dataset.dropDay;
   const period = Number(cell.dataset.dropPeriod);
-  const assignment = data.type === "move" ? data.assignment : data;
-  if (!assignment?.staff) return;
+  const staff = data.type === "move" ? data.assignment?.staff : data.staff;
+  if (!staff) return;
   if (day !== scheduleDay) {
     toast(`Drop on the selected day (${scheduleDay}) or switch to ${day}.`, "error");
     return;
   }
-  if (data.type === "assignment" && data.period !== period) {
+  if (data.type === "staff" && data.period !== period) {
     toast(`Drop the P${data.period} box into a P${data.period} timetable cell.`, "error");
     return;
   }
-  if (data.type === "assignment" && assignmentPlaced(project, rowId, day, data.columnId, period)) {
-    return;
-  }
   const existing = getSlot(project, rowId, day, period);
-  if (existing && data.type === "assignment") {
+  if (existing && data.type === "staff") {
     toast("This cell is already filled.", "error");
     return;
   }
-  if (isStaffBusy(project, assignment.staff, day, period)) {
-    toast(`${assignment.staff} is marked busy for ${day} P${period}.`, "error");
+  if (isStaffBusy(project, staff, day, period)) {
+    toast(`${staff} is marked busy for ${day} P${period}.`, "error");
     return;
   }
-  const booked = staffBooking(project, assignment.staff, day, period, rowId);
+  const booked = staffBooking(project, staff, day, period, rowId);
   if (booked) {
-    toast(`${assignment.staff} is already assigned to ${booked.section} for ${day} P${period}.`, "error");
+    toast(`${staff} is already assigned to ${booked.section} for ${day} P${period}.`, "error");
     return;
   }
-  if (data.type === "move") clearSlot(project, data.fromRowId, data.fromDay, data.fromPeriod);
-  setSlot(project, rowId, day, period, {
-    columnId: assignment.columnId,
-    staff: assignment.staff,
-    title: assignment.title,
-    role: assignment.role,
-    kind: assignment.kind,
-  });
-  save();
+  if (data.type === "move") {
+    clearSlot(project, data.fromRowId, data.fromDay, data.fromPeriod);
+    placeAssignment(rowId, day, period, data.assignment);
+    save();
+    render();
+    return;
+  }
+
+  const options = staffOptionsFor(project, rowId, staff);
+  if (!options.length) {
+    toast(`${staff} is not mapped to this section.`, "error");
+    return;
+  }
+  if (options.length === 1) {
+    placeAssignment(rowId, day, period, options[0]);
+    save();
+    render();
+    return;
+  }
+  subjectChoice = { rowId, day, period, staff, options };
   render();
 }
 
@@ -1765,6 +1825,10 @@ document.addEventListener("mouseup", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && menu) {
     closeMenu();
+    render();
+  }
+  if (event.key === "Escape" && subjectChoice) {
+    subjectChoice = null;
     render();
   }
 });

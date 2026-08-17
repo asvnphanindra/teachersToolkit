@@ -301,6 +301,26 @@ export function sectionAssignments(project, rowId) {
   })).filter((assignment) => assignment.staff);
 }
 
+/**
+ * One entry per staff member for a section, even when they hold several
+ * subjects or labs there. The subject is chosen when a period is placed.
+ */
+export function sectionStaffGroups(project, rowId) {
+  const groups = new Map();
+  sectionAssignments(project, rowId).forEach((assignment) => {
+    if (!groups.has(assignment.staff)) {
+      groups.set(assignment.staff, { staff: assignment.staff, assignments: [] });
+    }
+    groups.get(assignment.staff).assignments.push(assignment);
+  });
+  return [...groups.values()];
+}
+
+export function staffOptionsFor(project, rowId, staff) {
+  return sectionStaffGroups(project, rowId)
+    .find((group) => group.staff === staff)?.assignments || [];
+}
+
 export function getSlot(project, rowId, day, period) {
   return project.schedule?.slots?.[rowId]?.[day]?.[String(period)] || null;
 }

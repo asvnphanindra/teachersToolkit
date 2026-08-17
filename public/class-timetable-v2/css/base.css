@@ -1581,6 +1581,12 @@ tr[data-row].drag-over td {
   font-size: var(--ct-fs-caption);
 }
 
+.schedule-staff-multi {
+  margin-top: 2px;
+  color: var(--ct-accent) !important;
+  font-weight: var(--ct-fw-semibold);
+}
+
 .schedule-show-more {
   margin-top: var(--ct-space-3);
 }
@@ -1923,6 +1929,89 @@ tr[data-row].drag-over td {
   inset: 0;
   z-index: 20;
   background: transparent;
+}
+
+.schedule-choice-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(29, 29, 31, 0.28);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.schedule-choice {
+  position: fixed;
+  z-index: 31;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100% - var(--ct-space-5)));
+  padding: var(--ct-space-4);
+  background: var(--ct-surface);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-lg);
+  box-shadow: var(--ct-shadow-lg);
+  animation: map-menu-in var(--ct-duration) var(--ct-ease);
+}
+
+.schedule-choice h2 {
+  margin: 0;
+  font-family: var(--ct-font-display);
+  font-size: var(--ct-fs-h2);
+  font-weight: var(--ct-fw-semibold);
+  letter-spacing: -0.02em;
+  color: var(--ct-text);
+}
+
+.schedule-choice > p {
+  margin: var(--ct-space-1) 0 var(--ct-space-3);
+  color: var(--ct-text-secondary);
+  font-size: var(--ct-fs-label);
+}
+
+.schedule-choice-options {
+  display: grid;
+  gap: var(--ct-space-2);
+}
+
+.schedule-choice-options button {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: var(--ct-space-3);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-md);
+  background: var(--ct-surface);
+  cursor: pointer;
+  font: inherit;
+  transition:
+    background var(--ct-duration-fast) var(--ct-ease),
+    border-color var(--ct-duration-fast) var(--ct-ease);
+}
+
+.schedule-choice-options button:hover,
+.schedule-choice-options button:focus-visible {
+  outline: none;
+  background: var(--ct-accent-tint);
+  border-color: var(--ct-accent);
+}
+
+.schedule-choice-options strong {
+  color: var(--ct-text);
+  font-size: var(--ct-fs-label);
+  font-weight: var(--ct-fw-semibold);
+}
+
+.schedule-choice-options span {
+  color: var(--ct-text-secondary);
+  font-size: var(--ct-fs-caption);
+}
+
+.schedule-choice-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--ct-space-3);
 }
 
 .map-menu {
