@@ -23,13 +23,19 @@ import {
   loadProject,
   saveProject,
 } from "./storage.js";
-import { exportMappingPdf } from "./pdf-export.js";
+import {
+  exportFacultySummaryPdf,
+  exportFacultyTimetablesPdf,
+  exportMappingPdf,
+  exportSectionTimetablesPdf,
+} from "./pdf-export.js";
 import { facultySummaryTables } from "./summary.js";
 import {
   WEEK_DAYS,
   adjustTimeRowsForPeriodCount,
   assignmentPlaced,
   clearSlot,
+  facultyTimetables,
   fullMappingIssues,
   getSlot,
   isStaffBusy,
@@ -43,16 +49,24 @@ import {
   syncSetupFromTimeRows,
   toggleStaffBusy,
 } from "./schedule.js";
+import {
+  STAGES,
+  hasSeenIntro,
+  markIntroSeen,
+  stageById,
+  stageState,
+} from "./stages.js";
 
 const app = document.querySelector("#app");
 let project = ensureActiveProject();
-let view = "mapping";
+let view = hasSeenIntro() ? "mapping" : "intro";
 let scheduleRowId = project.rows[0]?.id || null;
 let scheduleDay = "Monday";
 let scheduleDragActive = false;
-let filesMenuOpen = false;
 let scheduleSearch = "";
 let scheduleVisibleCount = 7;
+let exportSectionId = "all";
+let exportStaffName = "all";
 let menu = null; // { columnId, x, y }
 let selected = null; // { rowId, columnId }
 let fillDrag = null;
@@ -95,6 +109,75 @@ function askName(label, defaultValue = "") {
     return null;
   }
   return title;
+}
+
+function howItWorksButton() {
+  return `<button type="button" class="btn btn--secondary btn--sm" data-action="show-intro">How it works</button>`;
+}
+
+function renderStageNav(currentView) {
+  const state = stageState(project, currentView);
+  return `<nav class="map-stage-nav" aria-label="Timetable stages">
+    ${state.stages.map((stage, index) => `
+      <button type="button"
+        class="map-stage-step ${stage.current ? "is-current" : ""} ${stage.complete ? "is-complete" : ""} ${stage.locked ? "is-locked" : ""}"
+        data-goto-stage="${stage.id}"
+        ${stage.locked ? 'aria-disabled="true"' : ""}
+        ${stage.current ? 'aria-current="step"' : ""}
+        title="${esc(stage.description)}">
+        <span class="map-stage-num">${stage.complete && !stage.current ? "✓" : stage.number}</span>
+        <span class="map-stage-copy">
+          <strong class="map-stage-label">${esc(stage.label)}</strong>
+          <span class="map-stage-hint">${esc(stage.description)}</span>
+        </span>
+      </button>
+      ${index < state.stages.length - 1 ? '<span class="map-stage-connector" aria-hidden="true"></span>' : ""}
+    `).join("")}
+  </nav>`;
+}
+
+function renderFooter(currentView) {
+  const stage = stageById(stageState(project, currentView).currentStage);
+  return `<footer class="map-footer">
+    <p><strong>Class Timetable</strong> · ${esc(stage.label)}</p>
+    <p>Autosaved locally</p>
+  </footer>`;
+}
+
+function goToStage(stageId) {
+  const state = stageState(project, view);
+  const target = state.byId[stageId];
+  if (!target) return;
+  if (target.locked) {
+    toast("Fill every mapping cell before scheduling.", "error");
+    view = "mapping";
+    render();
+    return;
+  }
+  selected = null;
+  closeMenu();
+  if (stageId === "plan") {
+    view = "mapping";
+  } else if (stageId === "schedule") {
+    normalizeSchedule(project);
+    scheduleRowId = project.rows[0]?.id || null;
+    scheduleDay = project.schedule.setup.workingDays[0] || "Monday";
+    save();
+    view = "schedule";
+  } else {
+    view = "export";
+  }
+  render();
+}
+
+function bindChrome() {
+  app.querySelectorAll("[data-goto-stage]").forEach((button) => {
+    button.onclick = () => goToStage(button.dataset.gotoStage);
+  });
+  app.querySelector("[data-action='show-intro']")?.addEventListener("click", () => {
+    view = "intro";
+    render();
+  });
 }
 
 const GRIP_WIDTH = 40;
@@ -222,6 +305,10 @@ function refreshMappingSuggestions() {
 }
 
 function render() {
+  if (view === "intro") {
+    renderIntro();
+    return;
+  }
   if (view === "summary") {
     renderSummary();
     return;
@@ -232,6 +319,10 @@ function render() {
   }
   if (view === "schedule") {
     renderSchedule();
+    return;
+  }
+  if (view === "export") {
+    renderExport();
     return;
   }
   const issues = mappingIssues(project);
@@ -246,9 +337,9 @@ function render() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
+        ${renderStageNav("mapping")}
         <header class="map-header" role="toolbar" aria-label="Mapping tools">
           <div class="map-header-left">
-            <p class="map-step"><span class="map-step-dot" aria-hidden="true"></span>Step 1 · Mapping</p>
             <label class="map-project-name">
               <span class="visually-hidden">Project name</span>
               <input id="project-name" value="${esc(project.name)}" maxlength="80" aria-label="Project name" placeholder="Project name">
@@ -262,6 +353,7 @@ function render() {
             ${issues.length
               ? `<span class="map-status warn" role="status">${issues.length} to fix</span>`
               : `<span class="map-status ok" role="status">Ready</span>`}
+            ${howItWorksButton()}
           </div>
         </header>
 
@@ -269,18 +361,7 @@ function render() {
           <div class="map-action-bar-left">
             <button type="button" class="btn btn--secondary btn--sm" data-action="fill-test" title="Load sample sections, subjects, labs, and staff">Fill test data</button>
             <button type="button" class="btn btn--secondary btn--sm" data-action="summary">Faculty summary</button>
-            <div class="map-file-menu-wrap">
-              <button type="button" class="btn btn--secondary btn--sm" data-action="toggle-files-menu" aria-haspopup="menu" aria-expanded="${filesMenuOpen ? "true" : "false"}">Files</button>
-              ${filesMenuOpen ? `
-                <div class="map-file-menu" role="menu" aria-label="Files">
-                  <button type="button" role="menuitem" data-action="import">Import JSON</button>
-                  <button type="button" role="menuitem" data-action="export">Export JSON</button>
-                  <button type="button" role="menuitem" data-action="export-pdf">Export PDF</button>
-                </div>
-              ` : ""}
-            </div>
             <button type="button" class="btn btn--secondary btn--sm" data-action="new-project">New</button>
-            <input id="import-mapping-file" class="visually-hidden" type="file" accept="application/json,.json,.mapping.json" tabindex="-1">
           </div>
         </div>
 
@@ -363,13 +444,13 @@ function render() {
 
             <div class="map-table-footer">
               <button type="button" class="btn btn--secondary btn--sm" data-action="add-rows">+ Add rows</button>
-              <button type="button" class="btn btn--primary btn--sm" data-action="start-step-2">Design Timetable</button>
+              <button type="button" class="btn btn--primary btn--sm" data-action="start-step-2">Set timings</button>
             </div>
           </div>
 
           ${issues.length ? `
             <div class="map-issues" role="status" aria-live="polite">
-              <p class="map-issues-title">Before step 2</p>
+              <p class="map-issues-title">Before scheduling</p>
               <ul>${issues.map((issue) => `<li>${esc(issue)}</li>`).join("")}</ul>
             </div>
           ` : ""}
@@ -393,10 +474,7 @@ function render() {
           </div>
         </section>
 
-        <footer class="map-footer">
-          <p><strong>Class Timetable V2</strong> · Step 1 of 2</p>
-          <p>Export for backup across devices</p>
-        </footer>
+        ${renderFooter("mapping")}
       </div>
     </div>
 
@@ -434,12 +512,13 @@ function renderSummary() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
+        ${renderStageNav("summary")}
         <header class="map-header" role="toolbar" aria-label="Faculty summary tools">
           <div class="map-header-left">
-            <p class="map-step"><span class="map-step-dot" aria-hidden="true"></span>Step 1 · Faculty summary</p>
             <h1 class="map-summary-project">${esc(project.name)}</h1>
           </div>
           <div class="map-header-actions">
+            ${howItWorksButton()}
             <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
           </div>
         </header>
@@ -480,9 +559,11 @@ function renderSummary() {
             </div>
           ` : `<section class="map-summary-empty-state"><h2>No subjects or labs yet</h2><p>Add a subject or lab in the mapping grid to view its faculty statistics.</p><button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button></section>`}
         </main>
+        ${renderFooter("summary")}
       </div>
     </div>
   `;
+  bindChrome();
   app.querySelectorAll("[data-action='back-to-mapping']").forEach((button) => {
     button.onclick = () => {
       view = "mapping";
@@ -500,12 +581,13 @@ function renderTimingSetup() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
+        ${renderStageNav("timingSetup")}
         <header class="map-header" role="toolbar" aria-label="Schedule setup tools">
           <div class="map-header-left">
-            <p class="map-step"><span class="map-step-dot" aria-hidden="true"></span>Step 1.5 · Timings</p>
             <h1 class="map-summary-project">${esc(project.name)}</h1>
           </div>
           <div class="map-header-actions">
+            ${howItWorksButton()}
             <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
             <button type="button" class="btn btn--primary btn--sm" data-action="open-schedule">Open scheduler</button>
           </div>
@@ -515,7 +597,7 @@ function renderTimingSetup() {
           <section class="schedule-card">
             <div class="schedule-card-head">
               <h2>Working days and periods</h2>
-              <p>These settings control the Step 2 timetable grid and faculty availability boxes.</p>
+              <p>These settings control the timetable grid and faculty availability boxes.</p>
             </div>
             <div class="schedule-days" id="setup-days">
               ${WEEK_DAYS.map((day) => `
@@ -548,10 +630,7 @@ function renderTimingSetup() {
           </section>
         </main>
 
-        <footer class="map-footer">
-          <p><strong>Class Timetable V2</strong> · Step 2 setup</p>
-          <p>Autosaved locally</p>
-        </footer>
+        ${renderFooter("timingSetup")}
       </div>
     </div>
   `;
@@ -602,6 +681,7 @@ function readTimeRowsFromDom() {
 }
 
 function bindTimingSetup() {
+  bindChrome();
   app.querySelector("[data-action='back-to-mapping']").onclick = () => {
     view = "mapping";
     render();
@@ -688,14 +768,16 @@ function renderSchedule() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
+        ${renderStageNav("schedule")}
         <header class="map-header" role="toolbar" aria-label="Schedule tools">
           <div class="map-header-left">
-            <p class="map-step"><span class="map-step-dot" aria-hidden="true"></span>Step 2 · Schedule</p>
             <h1 class="map-summary-project">${esc(project.name)}</h1>
           </div>
           <div class="map-header-actions">
+            ${howItWorksButton()}
             <button type="button" class="btn btn--secondary btn--sm" data-action="edit-timings">Edit timings</button>
             <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
+            <button type="button" class="btn btn--primary btn--sm" data-action="goto-export">Export</button>
           </div>
         </header>
 
@@ -762,10 +844,7 @@ function renderSchedule() {
           </section>
         </main>
 
-        <footer class="map-footer">
-          <p><strong>Class Timetable V2</strong> · Step 2 of 2</p>
-          <p>Autosaved locally</p>
-        </footer>
+        ${renderFooter("schedule")}
       </div>
     </div>
   `;
@@ -838,6 +917,7 @@ function renderScheduleDayRow(day, columns, rowId) {
 }
 
 function bindSchedule() {
+  bindChrome();
   app.querySelector("[data-action='edit-timings']").onclick = () => {
     view = "timingSetup";
     render();
@@ -846,6 +926,7 @@ function bindSchedule() {
     view = "mapping";
     render();
   };
+  app.querySelector("[data-action='goto-export']")?.addEventListener("click", () => goToStage("export"));
   app.querySelector("#schedule-section").onchange = (event) => {
     scheduleRowId = event.target.value;
     scheduleVisibleCount = 7;
@@ -989,6 +1070,191 @@ function handleScheduleDrop(cell, event) {
   render();
 }
 
+function dismissIntro() {
+  markIntroSeen();
+  view = "mapping";
+  render();
+}
+
+function renderIntro() {
+  app.innerHTML = `
+    <div class="map-page">
+      <div class="map-shell">
+        <section class="map-intro" aria-labelledby="intro-heading">
+          <p class="map-intro-eyebrow">Class Timetable</p>
+          <h1 id="intro-heading">Three stages to a finished timetable</h1>
+          <p class="map-intro-lead">Plan who teaches what, schedule the week, then export printable copies. Work stays in this browser until you export.</p>
+          <div class="map-intro-grid">
+            ${STAGES.map((stage) => `
+              <article class="map-intro-card">
+                <span class="map-intro-num">${stage.number}</span>
+                <h2>${esc(stage.label)}</h2>
+                <p>${esc(stage.description)}</p>
+              </article>
+            `).join("")}
+          </div>
+          <div class="map-intro-actions">
+            <button type="button" class="btn btn--primary" data-action="start-planning">Start planning</button>
+            <button type="button" class="btn btn--secondary" data-action="skip-intro">Skip</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+  app.querySelectorAll("[data-action]").forEach((button) => {
+    button.onclick = () => runAction(button.dataset.action);
+  });
+}
+
+function exportDisabled(ok, reason) {
+  return ok ? "" : `disabled title="${esc(reason)}"`;
+}
+
+function renderExport() {
+  const state = stageState(project, "export");
+  const stats = state.stats;
+  const faculty = facultyTimetables(project);
+  const mappingReady = project.rows.length > 0;
+  const summaryReady = facultySummaryTables(project).length > 0;
+  const hasSlots = stats.placedPeriods > 0;
+  const selectedFaculty = faculty.find((entry) => entry.staff === exportStaffName);
+  if (exportStaffName !== "all" && !selectedFaculty) exportStaffName = "all";
+  if (exportSectionId !== "all" && !project.rows.some((row) => row.id === exportSectionId)) {
+    exportSectionId = "all";
+  }
+
+  app.innerHTML = `
+    <div class="map-page">
+      <div class="map-shell">
+        ${renderStageNav("export")}
+        <header class="map-header" role="toolbar" aria-label="Export tools">
+          <div class="map-header-left">
+            <h1 class="map-summary-project">${esc(project.name)}</h1>
+            <p class="map-privacy" title="Data stays in this browser only">
+              <span class="map-privacy-dot" aria-hidden="true"></span>
+              Autosaved locally
+            </p>
+          </div>
+          <div class="map-header-actions">
+            ${howItWorksButton()}
+          </div>
+        </header>
+
+        <main class="map-export" aria-label="Export timetables">
+          <section class="schedule-card map-export-stats">
+            <div class="schedule-card-head">
+              <h2>Ready to share</h2>
+              <p>${stats.placedPeriods} of ${stats.totalSlots || 0} periods placed · ${stats.sectionCount} section${stats.sectionCount === 1 ? "" : "s"} · ${stats.facultyCount} faculty on the grid</p>
+            </div>
+          </section>
+
+          <div class="map-export-grid">
+            <article class="schedule-card">
+              <div class="schedule-card-head">
+                <h2>Section timetables</h2>
+                <p>One printable page per class section, including breaks.</p>
+              </div>
+              <label class="map-export-scope">
+                <span>Scope</span>
+                <select id="export-section">
+                  <option value="all" ${exportSectionId === "all" ? "selected" : ""}>All sections</option>
+                  ${project.rows.map((row) => `<option value="${row.id}" ${exportSectionId === row.id ? "selected" : ""}>${esc(sectionLabel(row))}</option>`).join("")}
+                </select>
+              </label>
+              <button type="button" class="btn btn--primary btn--sm" data-action="export-sections" ${exportDisabled(hasSlots, "Place at least one period on the schedule first.")}>Print section timetables</button>
+            </article>
+
+            <article class="schedule-card">
+              <div class="schedule-card-head">
+                <h2>Faculty timetables</h2>
+                <p>One printable page per staff member with their assigned periods.</p>
+              </div>
+              <label class="map-export-scope">
+                <span>Scope</span>
+                <select id="export-staff">
+                  <option value="all" ${exportStaffName === "all" ? "selected" : ""}>All faculty</option>
+                  ${faculty.map((entry) => `<option value="${esc(entry.staff)}" ${exportStaffName === entry.staff ? "selected" : ""}>${esc(entry.staff)}</option>`).join("")}
+                </select>
+              </label>
+              <button type="button" class="btn btn--primary btn--sm" data-action="export-faculty" ${exportDisabled(hasSlots, "Place at least one period on the schedule first.")}>Print faculty timetables</button>
+            </article>
+
+            <article class="schedule-card">
+              <div class="schedule-card-head">
+                <h2>Mapping table</h2>
+                <p>The Plan-stage grid of sections, subjects, labs, and staff.</p>
+              </div>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="export-pdf" ${exportDisabled(mappingReady, "Add at least one section first.")}>Print mapping table</button>
+            </article>
+
+            <article class="schedule-card">
+              <div class="schedule-card-head">
+                <h2>Faculty summary</h2>
+                <p>Workload counts by subject, split into teaching and supporting staff.</p>
+              </div>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="export-summary-pdf" ${exportDisabled(summaryReady, "Add a subject or lab first.")}>Print faculty summary</button>
+            </article>
+
+            <article class="schedule-card">
+              <div class="schedule-card-head">
+                <h2>Project backup</h2>
+                <p>JSON stays in this browser until you export. Import a file to restore a copy.</p>
+              </div>
+              <div class="map-export-file-actions">
+                <button type="button" class="btn btn--secondary btn--sm" data-action="export">Export JSON</button>
+                <button type="button" class="btn btn--secondary btn--sm" data-action="import">Import JSON</button>
+              </div>
+              <input id="import-mapping-file" class="visually-hidden" type="file" accept="application/json,.json,.mapping.json" tabindex="-1">
+            </article>
+          </div>
+        </main>
+
+        ${renderFooter("export")}
+      </div>
+    </div>
+  `;
+  bindExport();
+}
+
+function bindExport() {
+  bindChrome();
+  app.querySelectorAll("[data-action]").forEach((button) => {
+    button.onclick = () => runAction(button.dataset.action);
+  });
+  const sectionSelect = app.querySelector("#export-section");
+  if (sectionSelect) {
+    sectionSelect.onchange = () => {
+      exportSectionId = sectionSelect.value;
+    };
+  }
+  const staffSelect = app.querySelector("#export-staff");
+  if (staffSelect) {
+    staffSelect.onchange = () => {
+      exportStaffName = staffSelect.value;
+    };
+  }
+  const importInput = app.querySelector("#import-mapping-file");
+  if (importInput) {
+    importInput.onchange = async () => {
+      const file = importInput.files?.[0];
+      importInput.value = "";
+      if (!file) return;
+      try {
+        const imported = await importProjectJson(file);
+        project = imported;
+        scheduleRowId = project.rows[0]?.id || null;
+        selected = null;
+        closeMenu();
+        save();
+        toast(`Imported “${project.name}”.`);
+        render();
+      } catch (error) {
+        toast(error.message || "Import failed.", "error");
+      }
+    };
+  }
+}
+
 function renderMenu() {
   const fromColumn = project.columns.find((item) => item.id === menu?.columnId);
   const canSupport = fromColumn && isMappingColumn(fromColumn);
@@ -1002,6 +1268,7 @@ function renderMenu() {
 }
 
 function bind() {
+  bindChrome();
   const nameInput = app.querySelector("#project-name");
   if (nameInput) {
     nameInput.onchange = () => {
@@ -1205,12 +1472,15 @@ function bind() {
 }
 
 function runAction(name) {
-  if (name === "toggle-files-menu") {
-    filesMenuOpen = !filesMenuOpen;
+  if (name === "show-intro") {
+    view = "intro";
     render();
     return;
   }
-  if (name !== "import") filesMenuOpen = false;
+  if (name === "start-planning" || name === "skip-intro") {
+    dismissIntro();
+    return;
+  }
   if (name === "add-rows") {
     const answer = prompt("How many rows do you want to add?", "1");
     if (answer == null) return;
@@ -1234,7 +1504,6 @@ function runAction(name) {
     render();
   }
   if (name === "import") {
-    filesMenuOpen = false;
     app.querySelector("#import-mapping-file")?.click();
   }
   if (name === "export") exportProjectJson(project);
@@ -1246,6 +1515,34 @@ function runAction(name) {
       toast(error.message || "Could not open the PDF export.", "error");
     }
   }
+  if (name === "export-sections") {
+    try {
+      const filename = exportSectionTimetablesPdf(project, {
+        rowId: exportSectionId === "all" ? null : exportSectionId,
+      });
+      toast(`Print dialog opened for ${filename}.`);
+    } catch (error) {
+      toast(error.message || "Could not export section timetables.", "error");
+    }
+  }
+  if (name === "export-faculty") {
+    try {
+      const filename = exportFacultyTimetablesPdf(project, {
+        staff: exportStaffName === "all" ? null : exportStaffName,
+      });
+      toast(`Print dialog opened for ${filename}.`);
+    } catch (error) {
+      toast(error.message || "Could not export faculty timetables.", "error");
+    }
+  }
+  if (name === "export-summary-pdf") {
+    try {
+      const filename = exportFacultySummaryPdf(project);
+      toast(`Print dialog opened for ${filename}.`);
+    } catch (error) {
+      toast(error.message || "Could not export the faculty summary.", "error");
+    }
+  }
   if (name === "summary") {
     selected = null;
     closeMenu();
@@ -1255,8 +1552,8 @@ function runAction(name) {
   if (name === "start-step-2") {
     const issues = fullMappingIssues(project);
     if (issues.length) {
-      toast("Fill every mapping cell before moving to Step 2.", "error");
-      alert(`Fill every mapping cell before moving to Step 2:\n\n${issues.slice(0, 12).join("\n")}${issues.length > 12 ? `\n...and ${issues.length - 12} more.` : ""}`);
+      toast("Fill every mapping cell before scheduling.", "error");
+      alert(`Fill every mapping cell before scheduling:\n\n${issues.slice(0, 12).join("\n")}${issues.length > 12 ? `\n...and ${issues.length - 12} more.` : ""}`);
       return;
     }
     normalizeSchedule(project);
@@ -1470,17 +1767,6 @@ document.addEventListener("keydown", (event) => {
     closeMenu();
     render();
   }
-  if (event.key === "Escape" && filesMenuOpen) {
-    filesMenuOpen = false;
-    render();
-  }
-});
-
-document.addEventListener("click", (event) => {
-  if (!filesMenuOpen) return;
-  if (event.target.closest?.(".map-file-menu-wrap")) return;
-  filesMenuOpen = false;
-  render();
 });
 
 render();
