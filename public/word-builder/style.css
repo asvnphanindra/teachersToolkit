@@ -1,34 +1,73 @@
 :root {
-  --ink: #132238;
-  --muted: #52657a;
-  --paper: #f4f7fb;
-  --card: #ffffff;
-  --primary: #1f5f9f;
-  --primary-dark: #17497b;
-  --line: #d9e2ec;
-  --success: #087f5b;
+  --ink: #1d1d1f;
+  --muted: #86868b;
+  --paper: #f5f5f7;
+  --card: #fbfbfd;
+  --primary: #0071e3;
+  --primary-dark: #0077ed;
+  --line: rgba(0, 0, 0, 0.06);
+  --success: #1d7a37;
+  --font-display: "Sora", "Source Sans 3", sans-serif;
+  --font-body: "Source Sans 3", sans-serif;
 }
 
 * { box-sizing: border-box; }
-body { min-width: 320px; background: var(--paper); color: var(--ink); font: 16px/1.45 Arial, Helvetica, sans-serif; }
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(900px 420px at 50% -40px, rgba(0, 113, 227, 0.06), transparent 60%),
+    linear-gradient(180deg, #fbfbfd 0%, var(--paper) 46%);
+  background-attachment: fixed;
+  color: var(--ink);
+  font: 16px/1.45 var(--font-body);
+}
 button, input, select { font: inherit; }
-button { border: 0; border-radius: .55rem; padding: .75rem 1rem; background: var(--primary); color: #fff; font-weight: 700; cursor: pointer; }
+button {
+  border: 0;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
 button:hover { background: var(--primary-dark); }
-button.secondary { background: #e7eff7; color: var(--ink); }
-button.secondary:hover { background: #d8e5f0; }
+button.secondary { background: #eaf2fc; color: var(--ink); }
+button.secondary:hover { background: #dce9f8; }
 .app-shell { max-width: 1600px; margin: 0 auto; padding: clamp(1rem, 2.5vw, 2.5rem); }
 .app-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
-.eyebrow { color: var(--primary); font-size: .78rem; font-weight: 800; letter-spacing: .11em; margin: 0 0 .2rem; }
-h1 { margin: 0; font-size: clamp(1.75rem, 4vw, 3rem); line-height: 1.1; }
-h2 { margin-top: 0; }
-#puzzle-subtitle { color: var(--muted); margin: .45rem 0 0; }
-.puzzle-file { color: var(--muted); font-family: Consolas, "Courier New", monospace; font-size: .78rem; margin: .35rem 0 0; }
-.header-actions, .game-actions, .answer-row, .dialog-actions { display: flex; flex-wrap: wrap; gap: .65rem; }
-.welcome-panel { max-width: 700px; text-align: center; background: var(--card); margin: 8vh auto; padding: clamp(2rem, 7vw, 4rem); border-radius: 1.25rem; box-shadow: 0 15px 35px #243b5320; }
-.welcome-icon { color: var(--primary); font-size: clamp(3rem, 9vw, 5rem); font-weight: 900; line-height: 1; letter-spacing: -.15em; }
-.offline-note { color: var(--muted); font-size: .9rem; margin-top: 1.5rem; }
+.eyebrow { color: var(--primary); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.11em; margin: 0 0 0.2rem; }
+h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 3rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+h2 { margin-top: 0; font-family: var(--font-display); font-weight: 600; letter-spacing: -0.02em; }
+#puzzle-subtitle { color: var(--muted); margin: 0.45rem 0 0; }
+.puzzle-file { color: var(--muted); font-family: Consolas, "Courier New", monospace; font-size: 0.78rem; margin: 0.35rem 0 0; }
+.header-actions, .game-actions, .answer-row, .dialog-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; }
+.welcome-panel {
+  max-width: 700px;
+  text-align: center;
+  background: var(--card);
+  margin: 8vh auto;
+  padding: clamp(2rem, 7vw, 4rem);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.06);
+}
+.welcome-icon { color: var(--primary); font-size: clamp(3rem, 9vw, 5rem); font-weight: 900; line-height: 1; letter-spacing: -0.15em; }
+.offline-note { color: var(--muted); font-size: 0.9rem; margin-top: 1.5rem; }
 .game-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: clamp(1rem, 2.5vw, 2rem); align-items: start; }
-.game-stage, .progress-panel { background: var(--card); border-radius: 1rem; box-shadow: 0 8px 24px #243b5314; }
+.game-stage, .progress-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: none;
+}
 .game-stage { padding: clamp(1rem, 2.5vw, 2rem); }
 .scorebar { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .scorebar > div { display: flex; align-items: baseline; gap: .5rem; }

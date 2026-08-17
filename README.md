@@ -25,7 +25,20 @@ Open `http://localhost:3000` for the hub and `http://localhost:3000/class-timeta
 
 Pushes to `main` deploy automatically via GitHub Actions (`.github/workflows/firebase-deploy.yml`).
 
-**One-time setup:** Add `FIREBASE_SERVICE_ACCOUNT` secret to the GitHub repo (Firebase Console → Project settings → Service accounts → Generate new private key).
+**One-time setup** (org policy blocks service-account JSON keys, so use a CI token):
+
+1. On your machine, run `firebase login:ci` and complete the browser login.
+2. Copy the printed token (do not commit it).
+3. GitHub → repo **Settings → Secrets and variables → Actions → New repository secret**
+   - Name: `FIREBASE_TOKEN`
+   - Value: paste the token
+4. Push to `main` (or re-run the workflow).
+
+Local deploy (no secret needed if you are already logged in):
+
+```bash
+firebase deploy --only hosting --project teacherstoolkit-nriit
+```
 
 ## Project structure
 

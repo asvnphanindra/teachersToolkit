@@ -1,36 +1,37 @@
 /* Class Timetable V2 — design tokens (8pt system) */
 :root {
-  /* Color */
-  --ct-bg: #eef2f7;
-  --ct-bg-accent: #e8eef6;
-  --ct-surface: #ffffff;
-  --ct-surface-muted: #f7f9fc;
-  --ct-surface-hover: #f0f4f8;
-  --ct-border: #d0d9e4;
-  --ct-border-strong: #9aabbc;
-  --ct-primary: #1e3a5f;
-  --ct-primary-hover: #152c49;
-  --ct-accent: #2f6fed;
-  --ct-accent-soft: #ebf2ff;
-  --ct-text: #0f1c2e;
-  --ct-text-secondary: #5a6f86;
-  --ct-text-disabled: #94a3b8;
-  --ct-success: #0d7a45;
-  --ct-success-bg: #e6f7ee;
+  /* Color — aligned with Teachers Toolkit apple-ui palette */
+  --ct-bg: #f5f5f7;
+  --ct-bg-accent: #f0f3f8;
+  --ct-surface: #fbfbfd;
+  --ct-surface-muted: #f5f5f7;
+  --ct-surface-hover: #f0f0f2;
+  --ct-border: rgba(0, 0, 0, 0.06);
+  --ct-border-strong: #c7c7cc;
+  --ct-primary: #1d1d1f;
+  --ct-primary-hover: #000000;
+  --ct-accent: #0071e3;
+  --ct-accent-soft: #eaf2fc;
+  --ct-text: #1d1d1f;
+  --ct-text-secondary: #86868b;
+  --ct-text-disabled: #aeaeb2;
+  --ct-success: #1d7a37;
+  --ct-success-bg: #eaf7ef;
   --ct-warning: #9a6700;
   --ct-warning-bg: #fff6e0;
   --ct-warning-border: #efd29a;
   --ct-error: #b42318;
   --ct-error-bg: #fef3f2;
   --ct-error-border: #fecdca;
-  --ct-info: #175cd3;
-  --ct-info-bg: #eff6ff;
+  --ct-info: #0071e3;
+  --ct-info-bg: #eaf2fc;
   --ct-mapping: #f3f7ff;
-  --ct-selection: #2f6fed;
-  --ct-focus-ring: rgba(47, 111, 237, 0.28);
+  --ct-selection: #0071e3;
+  --ct-focus-ring: rgba(0, 113, 227, 0.28);
 
-  /* Typography (Source Sans 3 via toolkit) */
-  --ct-font: "Source Sans 3", system-ui, -apple-system, sans-serif;
+  /* Typography */
+  --ct-font: "Source Sans 3", sans-serif;
+  --ct-font-display: "Sora", "Source Sans 3", sans-serif;
   --ct-fs-display: 1.75rem;
   --ct-fs-h1: 1.375rem;
   --ct-fs-h2: 1rem;
@@ -94,8 +95,8 @@
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(1200px 480px at 0% -10%, var(--ct-bg-accent), transparent 55%),
-    linear-gradient(180deg, #f5f8fc 0%, var(--ct-bg) 100%);
+    radial-gradient(1100px 480px at 50% -60px, rgba(0, 113, 227, 0.06), transparent 62%),
+    linear-gradient(180deg, #fbfbfd 0%, var(--ct-bg) 46%);
 }
 
 .map-shell {
