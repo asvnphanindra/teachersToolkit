@@ -13,10 +13,37 @@ export function defaultPeriodTimes(count = 6) {
   });
 }
 
-function minutesToTime(total) {
-  const hours = Math.floor(total / 60);
-  const minutes = total % 60;
+export const TIMELINE = {
+  startMinutes: 9 * 60,
+  endMinutes: 17 * 60,
+  snap: 5,
+  minDuration: 10,
+  minBreakDuration: 5,
+  periodDuration: 50,
+  breakDuration: 15,
+  lunchDuration: 45,
+};
+
+export const BREAK_NAME_HINTS = ["Morning break", "Lunch break", "Afternoon break"];
+
+export function minutesToTime(total) {
+  const hours = Math.floor(Math.max(0, total) / 60);
+  const minutes = Math.max(0, total) % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+export function timeToMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+export function snapMinutes(value) {
+  const snapped = Math.round(value / TIMELINE.snap) * TIMELINE.snap;
+  return Math.min(TIMELINE.endMinutes, Math.max(TIMELINE.startMinutes, snapped));
 }
 
 function clampPeriodCount(value) {
@@ -67,6 +94,66 @@ function normalizeTimeRow(row, index) {
   };
 }
 
+function slotDurationMinutes(row, fallback) {
+  const start = timeToMinutes(row.start);
+  const end = timeToMinutes(row.end);
+  if (start != null && end != null && end > start) return end - start;
+  return fallback;
+}
+
+function timeRowsHaveOverlap(timeRows) {
+  for (let i = 1; i < timeRows.length; i += 1) {
+    const prevEnd = timeToMinutes(timeRows[i - 1].end);
+    const start = timeToMinutes(timeRows[i].start);
+    if (prevEnd != null && start != null && start < prevEnd) return true;
+  }
+  return false;
+}
+
+function layoutTimeRowsContiguous(timeRows) {
+  const rows = timeRows.map(normalizeTimeRow);
+  let cursor = timeToMinutes(rows[0]?.start) ?? TIMELINE.startMinutes;
+  cursor = Math.max(TIMELINE.startMinutes, cursor);
+  return rows.map((row) => {
+    const duration = slotDurationMinutes(
+      row,
+      row.type === "break" ? TIMELINE.breakDuration : TIMELINE.periodDuration,
+    );
+    const start = cursor;
+    const end = Math.min(TIMELINE.endMinutes, start + Math.max(minDurationFor(row), duration));
+    cursor = end;
+    return { ...row, start: minutesToTime(start), end: minutesToTime(end) };
+  });
+}
+
+function timeRowsOutsideWindow(timeRows) {
+  return timeRows.some((row) => {
+    const start = timeToMinutes(row.start);
+    const end = timeToMinutes(row.end);
+    return (start != null && start < TIMELINE.startMinutes)
+      || (end != null && end > TIMELINE.endMinutes);
+  });
+}
+
+function fitTimeRowsToWindow(timeRows) {
+  const rows = timeRows.map(normalizeTimeRow);
+  if (!rows.length) return rows;
+  const first = timeToMinutes(rows[0].start) ?? TIMELINE.startMinutes;
+  const last = timeToMinutes(rows[rows.length - 1].end) ?? first;
+  let delta = 0;
+  if (first < TIMELINE.startMinutes) delta = TIMELINE.startMinutes - first;
+  if (last + delta > TIMELINE.endMinutes) {
+    const back = TIMELINE.endMinutes - (last + delta);
+    if (first + delta + back >= TIMELINE.startMinutes) delta += back;
+    else return layoutTimeRowsContiguous(rows.map((row) => ({
+      ...row,
+      start: minutesToTime(TIMELINE.startMinutes),
+    })));
+  }
+  if (delta === 0) return rows;
+  return rows.map((row) => shiftTimeRow(row, delta));
+}
+
 function timeRowsFromLegacy(setup) {
   const breaksByAfter = new Map();
   (setup.breaks || []).forEach((item) => {
@@ -77,33 +164,50 @@ function timeRowsFromLegacy(setup) {
   });
 
   const rows = [];
-  (breaksByAfter.get(0) || []).forEach((item) => {
+  let cursor = 9 * 60;
+  const firstTime = setup.periodTimes?.[0] || defaultPeriodTimes(setup.periodsPerDay)[0];
+  const firstStart = timeToMinutes(firstTime?.start);
+  if (firstStart != null) cursor = firstStart;
+
+  const appendSlot = (row, fallbackDuration) => {
+    const duration = slotDurationMinutes(row, fallbackDuration);
+    const start = cursor;
+    const end = Math.min(TIMELINE.endMinutes, start + duration);
     rows.push({
+      ...row,
+      start: minutesToTime(start),
+      end: minutesToTime(Math.max(start + TIMELINE.minDuration, end)),
+    });
+    cursor = Math.max(start + TIMELINE.minDuration, end);
+  };
+
+  (breaksByAfter.get(0) || []).forEach((item) => {
+    appendSlot({
       type: "break",
       id: item.id,
       label: item.label || "Break",
       start: item.start || "",
       end: item.end || "",
-    });
+    }, TIMELINE.breakDuration);
   });
 
   for (let period = 1; period <= setup.periodsPerDay; period += 1) {
     const time = setup.periodTimes?.[period - 1] || defaultPeriodTimes(setup.periodsPerDay)[period - 1];
-    rows.push({
+    appendSlot({
       type: "period",
       period,
       label: `Period ${period}`,
       start: time.start || "",
       end: time.end || "",
-    });
+    }, TIMELINE.periodDuration);
     (breaksByAfter.get(period) || []).forEach((item) => {
-      rows.push({
+      appendSlot({
         type: "break",
         id: item.id,
         label: item.label || "Break",
         start: item.start || "",
         end: item.end || "",
-      });
+      }, TIMELINE.breakDuration);
     });
   }
   return rows;
@@ -121,7 +225,7 @@ export function periodCountFromTimeRows(timeRows) {
 }
 
 export function syncSetupFromTimeRows(timeRows) {
-  const normalized = timeRows.map(normalizeTimeRow);
+  const normalized = renumberPeriods(timeRows.map(normalizeTimeRow));
   const periodsPerDay = periodCountFromTimeRows(normalized);
   const periodTimes = normalized
     .filter((row) => row.type === "period")
@@ -144,11 +248,196 @@ export function syncSetupFromTimeRows(timeRows) {
   });
 
   return {
-    periodsPerDay,
+    periodsPerDay: Math.max(1, periodsPerDay),
     periodTimes,
     breaks,
     timeRows: normalized,
   };
+}
+
+export function renumberPeriods(timeRows) {
+  let periodNum = 0;
+  return timeRows.map((row) => {
+    if (row.type !== "period") return { ...row };
+    periodNum += 1;
+    return { ...row, period: periodNum, label: `Period ${periodNum}` };
+  });
+}
+
+export function nextBreakLabel(timeRows) {
+  const used = new Set(
+    timeRows.filter((row) => row.type === "break").map((row) => String(row.label || "").trim()),
+  );
+  return BREAK_NAME_HINTS.find((label) => !used.has(label)) || "Break";
+}
+
+export function timeRowDuration(row) {
+  const start = timeToMinutes(row?.start);
+  const end = timeToMinutes(row?.end);
+  if (start == null || end == null) return 0;
+  return Math.max(0, end - start);
+}
+
+export function timelineMarks() {
+  const marks = [];
+  for (let minutes = TIMELINE.startMinutes; minutes <= TIMELINE.endMinutes; minutes += 30) {
+    marks.push({
+      minutes,
+      major: minutes % 60 === 0,
+      label: minutes % 60 === 0 ? minutesToTime(minutes) : "",
+      offset: ((minutes - TIMELINE.startMinutes) / (TIMELINE.endMinutes - TIMELINE.startMinutes)) * 100,
+    });
+  }
+  return marks;
+}
+
+function minDurationFor(row) {
+  return row?.type === "break" ? TIMELINE.minBreakDuration : TIMELINE.minDuration;
+}
+
+function lastSlotEndMinutes(timeRows) {
+  let latest = TIMELINE.startMinutes;
+  timeRows.forEach((row) => {
+    const end = timeToMinutes(row.end) ?? timeToMinutes(row.start);
+    if (end != null) latest = Math.max(latest, end);
+  });
+  return latest;
+}
+
+function shiftTimeRow(row, delta) {
+  const start = timeToMinutes(row.start);
+  const end = timeToMinutes(row.end);
+  return {
+    ...row,
+    start: start == null ? row.start : minutesToTime(start + delta),
+    end: end == null ? row.end : minutesToTime(end + delta),
+  };
+}
+
+function stretchBreakSlot(rows, index, edge, minutes) {
+  const row = rows[index];
+  const start = timeToMinutes(row.start) ?? TIMELINE.startMinutes;
+  const end = timeToMinutes(row.end) ?? start + TIMELINE.minBreakDuration;
+  const snapped = snapMinutes(minutes);
+  const minDur = minDurationFor(row);
+
+  if (edge === "end") {
+    let delta = snapped - end;
+    if (end + delta < start + minDur) delta = start + minDur - end;
+    const lastEnd = timeToMinutes(rows[rows.length - 1].end) ?? end;
+    if (delta > 0 && lastEnd + delta > TIMELINE.endMinutes) {
+      delta = TIMELINE.endMinutes - lastEnd;
+    }
+    if (delta === 0) return rows;
+    row.end = minutesToTime(end + delta);
+    for (let i = index + 1; i < rows.length; i += 1) {
+      rows[i] = shiftTimeRow(rows[i], delta);
+    }
+    return rows;
+  }
+
+  let delta = snapped - start;
+  if (start + delta > end - minDur) delta = end - minDur - start;
+  const firstStart = timeToMinutes(rows[0].start) ?? start;
+  if (delta < 0 && firstStart + delta < TIMELINE.startMinutes) {
+    delta = TIMELINE.startMinutes - firstStart;
+  }
+  if (delta === 0) return rows;
+  for (let i = 0; i < index; i += 1) {
+    rows[i] = shiftTimeRow(rows[i], delta);
+  }
+  row.start = minutesToTime(start + delta);
+  return rows;
+}
+
+export function insertTimeSlot(timeRows, type) {
+  const rows = timeRows.map(normalizeTimeRow);
+  const breakLabel = type === "break" ? nextBreakLabel(rows) : "";
+  const duration = type === "break"
+    ? (breakLabel === "Lunch break" ? TIMELINE.lunchDuration : TIMELINE.breakDuration)
+    : TIMELINE.periodDuration;
+  const start = rows.length ? lastSlotEndMinutes(rows) : TIMELINE.startMinutes;
+  const end = start + duration;
+  if (end > TIMELINE.endMinutes || end - start < minDurationFor({ type })) {
+    throw new Error("No room left on the 09:00–17:00 day. Shorten a slot first.");
+  }
+  if (type === "break") {
+    rows.push({
+      type: "break",
+      id: `break-${Date.now()}`,
+      label: breakLabel,
+      start: minutesToTime(start),
+      end: minutesToTime(end),
+    });
+  } else {
+    rows.push({
+      type: "period",
+      period: 0,
+      label: "Period",
+      start: minutesToTime(start),
+      end: minutesToTime(end),
+    });
+  }
+  return renumberPeriods(rows);
+}
+
+export function removeTimeSlot(timeRows, index) {
+  const rows = timeRows.map(normalizeTimeRow);
+  if (!rows[index]) return rows;
+  if (rows[index].type === "period" && periodCountFromTimeRows(rows) <= 1) {
+    throw new Error("Keep at least one period.");
+  }
+  rows.splice(index, 1);
+  return renumberPeriods(rows);
+}
+
+export function resizeTimeSlot(timeRows, index, edge, minutes) {
+  const rows = timeRows.map((row) => ({ ...normalizeTimeRow(row) }));
+  const row = rows[index];
+  if (!row) return rows;
+  if (row.type === "break") {
+    return renumberPeriods(stretchBreakSlot(rows, index, edge, minutes));
+  }
+  const snapped = snapMinutes(minutes);
+  const start = timeToMinutes(row.start) ?? TIMELINE.startMinutes;
+  const end = timeToMinutes(row.end) ?? start + minDurationFor(row);
+  const minDur = minDurationFor(row);
+  const prevMin = rows[index - 1] ? minDurationFor(rows[index - 1]) : minDur;
+  const nextMin = rows[index + 1] ? minDurationFor(rows[index + 1]) : minDur;
+
+  if (edge === "start") {
+    const prev = rows[index - 1];
+    const prevStart = prev ? timeToMinutes(prev.start) ?? TIMELINE.startMinutes : TIMELINE.startMinutes;
+    const maxStart = end - minDur;
+    const minStart = prev ? prevStart + prevMin : TIMELINE.startMinutes;
+    const nextStart = Math.min(maxStart, Math.max(minStart, snapped));
+    row.start = minutesToTime(nextStart);
+    if (prev) prev.end = row.start;
+  } else {
+    const next = rows[index + 1];
+    const nextEnd = next ? timeToMinutes(next.end) ?? TIMELINE.endMinutes : TIMELINE.endMinutes;
+    const minEnd = start + minDur;
+    const maxEnd = next ? nextEnd - nextMin : TIMELINE.endMinutes;
+    const nextEndMinutes = Math.min(maxEnd, Math.max(minEnd, snapped));
+    row.end = minutesToTime(nextEndMinutes);
+    if (next) next.start = row.end;
+  }
+  return renumberPeriods(rows);
+}
+
+export function updateTimeSlotLabel(timeRows, index, label) {
+  const rows = timeRows.map((row) => ({ ...normalizeTimeRow(row) }));
+  if (rows[index]?.type === "break") {
+    rows[index].label = String(label || "").trim() || "Break";
+  }
+  return rows;
+}
+
+export function minutesFromBar(clientX, barRect) {
+  const width = barRect.width || 1;
+  const ratio = (clientX - barRect.left) / width;
+  const span = TIMELINE.endMinutes - TIMELINE.startMinutes;
+  return snapMinutes(TIMELINE.startMinutes + ratio * span);
 }
 
 export function adjustTimeRowsForPeriodCount(timeRows, targetCount) {
@@ -214,7 +503,16 @@ export function normalizeSchedule(project) {
   };
 
   let timeRows = buildTimeRows(legacySetup);
-  timeRows = adjustTimeRowsForPeriodCount(timeRows, periodsPerDay);
+  if (periodCountFromTimeRows(timeRows) === 0) {
+    timeRows = timeRowsFromLegacy({ ...legacySetup, timeRows: null });
+  }
+  if (timeRowsHaveOverlap(timeRows)) {
+    timeRows = layoutTimeRowsContiguous(timeRows);
+  }
+  if (timeRowsOutsideWindow(timeRows)) {
+    timeRows = fitTimeRowsToWindow(timeRows);
+  }
+  timeRows = renumberPeriods(timeRows);
   const synced = syncSetupFromTimeRows(timeRows);
 
   project.schedule = {
@@ -276,6 +574,13 @@ function timeRange(item) {
   return `${item.start}-${item.end}`;
 }
 
+export function sectionId(row) {
+  return String(row?.cells?.["col-section-id"] || "").trim()
+    || String(row?.cells?.["col-section-name"] || "").trim()
+    || row?.id
+    || "—";
+}
+
 export function sectionLabel(row) {
   const id = String(row.cells["col-section-id"] || "").trim();
   const name = String(row.cells["col-section-name"] || "").trim();
@@ -321,6 +626,50 @@ export function staffOptionsFor(project, rowId, staff) {
     .find((group) => group.staff === staff)?.assignments || [];
 }
 
+export function assignmentRecord(assignment) {
+  return {
+    columnId: assignment.columnId,
+    staff: assignment.staff,
+    title: assignment.title,
+    role: assignment.role,
+    kind: assignment.kind,
+  };
+}
+
+export function linkedSupportAssignment(project, rowId, teaching) {
+  if (!teaching || teaching.kind === "support") return null;
+  const row = project.rows.find((item) => item.id === rowId);
+  const teachingColumn = project.columns.find((column) => column.id === teaching.columnId);
+  if (!row || !teachingColumn) return null;
+  const baseKind = teachingColumn.kind === "lab" ? "lab" : "subject";
+  const supportColumn = project.columns.find((column) => (
+    column.kind === "support"
+    && column.subjectKey === teachingColumn.subjectKey
+    && column.baseKind === baseKind
+  ));
+  if (!supportColumn) return null;
+  const staff = String(row.cells[supportColumn.id] || "").trim();
+  if (!staff || staff === teaching.staff) return null;
+  return assignmentRecord({
+    columnId: supportColumn.id,
+    staff,
+    title: supportColumn.title || teaching.title,
+    role: assignmentRole(supportColumn),
+    kind: "support",
+  });
+}
+
+export function slotOccupants(slot) {
+  if (!slot?.staff) return [];
+  const occupants = [slot];
+  if (slot.support?.staff) occupants.push(slot.support);
+  return occupants;
+}
+
+export function staffOccupiesSlot(slot, staff) {
+  return slotOccupants(slot).some((occupant) => occupant.staff === staff);
+}
+
 export function getSlot(project, rowId, day, period) {
   return project.schedule?.slots?.[rowId]?.[day]?.[String(period)] || null;
 }
@@ -361,13 +710,29 @@ export function staffBooking(project, staff, day, period, excludeRowId = null) {
   for (const row of project.rows) {
     if (row.id === excludeRowId) continue;
     const slot = slots[row.id]?.[day]?.[String(period)];
-    if (slot?.staff === staff) {
+    if (staffOccupiesSlot(slot, staff)) {
       return {
         rowId: row.id,
         section: sectionLabel(row),
+        sectionId: sectionId(row),
         slot,
       };
     }
+  }
+  return null;
+}
+
+export function staffPeriodPlacement(project, staff, day, period) {
+  const slots = project.schedule?.slots || {};
+  for (const row of project.rows) {
+    const slot = slots[row.id]?.[day]?.[String(period)];
+    if (!staffOccupiesSlot(slot, staff)) continue;
+    return {
+      rowId: row.id,
+      section: sectionLabel(row),
+      sectionId: sectionId(row),
+      slot,
+    };
   }
   return null;
 }
@@ -389,6 +754,7 @@ export function scheduleStats(project) {
         placedPeriods += 1;
         sectionsTouched.add(row.id);
         faculty.add(slot.staff);
+        if (slot.support?.staff) faculty.add(slot.support.staff);
       }
     });
   });
@@ -415,15 +781,17 @@ export function facultyTimetables(project) {
     const days = schedule.slots?.[row.id] || {};
     Object.entries(days).forEach(([day, periods]) => {
       Object.entries(periods || {}).forEach(([period, slot]) => {
-        const staff = String(slot?.staff || "").trim();
-        if (!staff) return;
-        if (!byStaff.has(staff)) byStaff.set(staff, {});
-        if (!byStaff.get(staff)[day]) byStaff.get(staff)[day] = {};
-        byStaff.get(staff)[day][String(period)] = {
-          ...slot,
-          rowId: row.id,
-          section,
-        };
+        slotOccupants(slot).forEach((occupant) => {
+          const staff = String(occupant.staff || "").trim();
+          if (!staff) return;
+          if (!byStaff.has(staff)) byStaff.set(staff, {});
+          if (!byStaff.get(staff)[day]) byStaff.get(staff)[day] = {};
+          byStaff.get(staff)[day][String(period)] = {
+            ...occupant,
+            rowId: row.id,
+            section,
+          };
+        });
       });
     });
   });

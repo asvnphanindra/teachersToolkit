@@ -32,13 +32,19 @@ import {
 import { facultySummaryTables } from "./summary.js";
 import {
   WEEK_DAYS,
-  adjustTimeRowsForPeriodCount,
+  TIMELINE,
+  assignmentRecord,
   clearSlot,
   facultyTimetables,
   fullMappingIssues,
   getSlot,
+  insertTimeSlot,
   isStaffBusy,
+  linkedSupportAssignment,
+  minutesFromBar,
   normalizeSchedule,
+  removeTimeSlot,
+  resizeTimeSlot,
   scheduleColumnTemplate,
   scheduleGridColumns,
   sectionLabel,
@@ -46,8 +52,13 @@ import {
   setSlot,
   staffBooking,
   staffOptionsFor,
+  staffPeriodPlacement,
   syncSetupFromTimeRows,
+  timeRowDuration,
+  timelineMarks,
+  timeToMinutes,
   toggleStaffBusy,
+  updateTimeSlotLabel,
 } from "./schedule.js";
 import {
   STAGES,
@@ -62,12 +73,15 @@ let project = ensureActiveProject();
 let view = hasSeenIntro() ? "mapping" : "intro";
 let scheduleRowId = project.rows[0]?.id || null;
 let scheduleDay = "Monday";
+let scheduleViewMode = "all"; // one | some | all
+let schedulePickedDays = [];
 let scheduleDragActive = false;
 let scheduleSearch = "";
 let scheduleVisibleCount = 7;
 let exportSectionId = "all";
 let exportStaffName = "all";
 let subjectChoice = null; // { rowId, day, period, staff, options }
+let timelineDrag = null; // { index, edge }
 let menu = null; // { columnId, x, y }
 let selected = null; // { rowId, columnId }
 let fillDrag = null;
@@ -573,11 +587,18 @@ function renderSummary() {
   });
 }
 
+function timelineLegendItem(row) {
+  const label = row.label || (row.type === "break" ? "Break" : `Period ${row.period}`);
+  const mins = timeRowDuration(row);
+  return `<li class="${row.type === "break" ? "is-break" : "is-period"}"><strong>${esc(label)}</strong> ${esc(row.start || "—")}–${esc(row.end || "—")}${mins ? ` · ${mins} min` : ""}</li>`;
+}
+
 function renderTimingSetup() {
   const schedule = normalizeSchedule(project);
   const setup = schedule.setup;
   const timeRows = setup.timeRows || [];
-  const rowHtml = timeRows.map((row, index) => renderTimeSetupRow(row, index)).join("");
+  const span = TIMELINE.endMinutes - TIMELINE.startMinutes;
+  const marks = timelineMarks();
 
   app.innerHTML = `
     <div class="map-page">
@@ -597,8 +618,8 @@ function renderTimingSetup() {
         <main class="schedule-setup" aria-label="Schedule timing setup">
           <section class="schedule-card">
             <div class="schedule-card-head">
-              <h2>Working days and periods</h2>
-              <p>These settings control the timetable grid and faculty availability boxes.</p>
+              <h2>Working days</h2>
+              <p>These days appear in the timetable grid.</p>
             </div>
             <div class="schedule-days" id="setup-days">
               ${WEEK_DAYS.map((day) => `
@@ -608,25 +629,32 @@ function renderTimingSetup() {
                 </label>
               `).join("")}
             </div>
-            <label class="schedule-period-count">
-              <span>Periods per day</span>
-              <input type="number" id="setup-period-count" min="1" max="12" value="${setup.periodsPerDay}">
-            </label>
           </section>
 
           <section class="schedule-card">
             <div class="schedule-card-head">
-              <h2>Day schedule</h2>
-              <p>Set period and break times in the order they appear in the timetable.</p>
+              <h2>Day timeline</h2>
+              <p>A school day from 09:00 to 17:00. Drag either edge of a break to make it longer or shorter — the rest of the day slides with it.</p>
             </div>
-            <div class="schedule-table-wrap">
-              <table class="schedule-setup-table schedule-time-rows-table" id="setup-time-rows">
-                <thead><tr><th>Description</th><th>From</th><th>To</th></tr></thead>
-                <tbody>${rowHtml}</tbody>
-              </table>
+            <div class="schedule-timeline" id="setup-timeline">
+              <div class="schedule-timeline-scale" aria-hidden="true">
+                ${marks.filter((mark) => mark.major).map((mark, index, list) => `
+                  <span class="schedule-timeline-hour-label ${index === 0 ? "is-first" : ""} ${index === list.length - 1 ? "is-last" : ""}" style="left:${mark.offset}%">${esc(mark.label)}</span>
+                `).join("")}
+              </div>
+              <div class="schedule-timeline-bar" role="list" aria-label="Period and break slots">
+                <div class="schedule-timeline-grid" aria-hidden="true">
+                  ${marks.map((mark) => `<span class="schedule-timeline-tick ${mark.major ? "is-hour" : "is-half"}" style="left:${mark.offset}%"></span>`).join("")}
+                </div>
+                ${timeRows.map((row, index) => renderTimelineSegment(row, index, span)).join("")}
+              </div>
             </div>
+            <ul class="schedule-timeline-legend">
+              ${timeRows.map((row) => timelineLegendItem(row)).join("")}
+            </ul>
             <div class="schedule-time-rows-actions">
-              <button type="button" class="btn btn--secondary btn--sm" data-action="add-break">+ Add break</button>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="add-period">+ Period</button>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="add-break">+ Break</button>
             </div>
           </section>
         </main>
@@ -638,47 +666,33 @@ function renderTimingSetup() {
   bindTimingSetup();
 }
 
-function renderTimeSetupRow(row, index) {
-  if (row.type === "break") {
-    return `<tr data-row-index="${index}" data-row-type="break" data-row-id="${esc(row.id)}">
-      <td class="schedule-time-desc">
-        <input data-time-label value="${esc(row.label)}" placeholder="Break name" aria-label="Break description">
-        <button type="button" class="btn btn--secondary btn--sm" data-remove-break="${index}" title="Remove break">Remove</button>
-      </td>
-      <td><input type="time" data-time-start value="${esc(row.start)}" aria-label="Break start"></td>
-      <td><input type="time" data-time-end value="${esc(row.end)}" aria-label="Break end"></td>
-    </tr>`;
-  }
-  return `<tr data-row-index="${index}" data-row-type="period" data-period="${row.period}">
-    <td class="schedule-time-desc"><span data-time-label>${esc(row.label || `Period ${row.period}`)}</span></td>
-    <td><input type="time" data-time-start value="${esc(row.start)}" aria-label="Period ${row.period} start"></td>
-    <td><input type="time" data-time-end value="${esc(row.end)}" aria-label="Period ${row.period} end"></td>
-  </tr>`;
-}
-
-function readTimeRowsFromDom() {
-  const rows = [];
-  app.querySelectorAll("#setup-time-rows tbody tr").forEach((tr) => {
-    const type = tr.dataset.rowType;
-    if (type === "break") {
-      rows.push({
-        type: "break",
-        id: tr.dataset.rowId,
-        label: tr.querySelector("[data-time-label]")?.value.trim() || "Break",
-        start: tr.querySelector("[data-time-start]")?.value || "",
-        end: tr.querySelector("[data-time-end]")?.value || "",
-      });
-      return;
-    }
-    rows.push({
-      type: "period",
-      period: Number(tr.dataset.period),
-      label: tr.querySelector("[data-time-label]")?.textContent.trim() || `Period ${tr.dataset.period}`,
-      start: tr.querySelector("[data-time-start]")?.value || "",
-      end: tr.querySelector("[data-time-end]")?.value || "",
-    });
-  });
-  return rows;
+function renderTimelineSegment(row, index, span) {
+  const start = timeToMinutes(row.start) ?? TIMELINE.startMinutes;
+  const end = timeToMinutes(row.end) ?? start + TIMELINE.minDuration;
+  const left = ((start - TIMELINE.startMinutes) / span) * 100;
+  const width = (Math.max(5, end - start) / span) * 100;
+  const kind = row.type === "break" ? "Break" : "Period";
+  const label = row.type === "break"
+    ? row.label || "Break"
+    : `Period ${row.period}`;
+  const mins = timeRowDuration(row);
+  const range = `${row.start || "—"}–${row.end || "—"}`;
+  return `
+    <div class="schedule-timeline-slot ${row.type === "break" ? "is-break" : "is-period"}"
+      role="listitem"
+      data-slot-index="${index}"
+      title="${esc(`${kind}: ${label} ${range}${mins ? ` · ${mins} min` : ""}`)}"
+      style="left:${left}%;width:${width}%">
+      <button type="button" class="schedule-timeline-handle" data-resize-slot="${index}" data-resize-edge="start" aria-label="Adjust start of ${esc(label)}"></button>
+      <div class="schedule-timeline-slot-body">
+        ${row.type === "break"
+          ? `<input class="schedule-timeline-label-input" data-slot-label="${index}" value="${esc(row.label || "Break")}" aria-label="Break name">`
+          : `<span class="schedule-timeline-label">${esc(`P${row.period}`)}</span>`}
+      </div>
+      <button type="button" class="map-icon-btn danger schedule-timeline-remove" data-remove-slot="${index}" title="Remove ${esc(label)}" aria-label="Remove ${esc(label)}">${ICON.close}</button>
+      <button type="button" class="schedule-timeline-handle" data-resize-slot="${index}" data-resize-edge="end" aria-label="Adjust end of ${esc(label)}"></button>
+    </div>
+  `;
 }
 
 function bindTimingSetup() {
@@ -692,65 +706,150 @@ function bindTimingSetup() {
     view = "schedule";
     render();
   };
-  app.querySelector("#setup-period-count").onchange = () => {
-    saveTimingSetup({ rerender: true });
-  };
   app.querySelectorAll("#setup-days input").forEach((input) => {
     input.onchange = () => saveTimingSetup();
   });
-  app.querySelectorAll("[data-time-start], [data-time-end], [data-time-label]").forEach((input) => {
-    input.onchange = () => saveTimingSetup();
+  app.querySelector("[data-action='add-period']")?.addEventListener("click", () => {
+    try {
+      applyTimingSetup(insertTimeSlot(currentTimeRows(), "period"));
+      render();
+    } catch (error) {
+      toast(error.message, "error");
+    }
   });
   app.querySelector("[data-action='add-break']")?.addEventListener("click", () => {
-    saveTimingSetup();
-    const timeRows = readTimeRowsFromDom();
-    timeRows.push({
-      type: "break",
-      id: `break-${Date.now()}`,
-      label: "Break",
-      start: "",
-      end: "",
-    });
-    applyTimingSetup(timeRows);
-    render();
-  });
-  app.querySelectorAll("[data-remove-break]").forEach((button) => {
-    button.onclick = () => {
-      const timeRows = readTimeRowsFromDom();
-      timeRows.splice(Number(button.dataset.removeBreak), 1);
-      applyTimingSetup(timeRows);
+    try {
+      applyTimingSetup(insertTimeSlot(currentTimeRows(), "break"));
       render();
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  });
+  app.querySelectorAll("[data-remove-slot]").forEach((button) => {
+    button.onclick = () => {
+      try {
+        applyTimingSetup(removeTimeSlot(currentTimeRows(), Number(button.dataset.removeSlot)));
+        render();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    };
+  });
+  app.querySelectorAll("[data-slot-label]").forEach((input) => {
+    input.onchange = () => {
+      applyTimingSetup(updateTimeSlotLabel(currentTimeRows(), Number(input.dataset.slotLabel), input.value));
+      render();
+    };
+  });
+  app.querySelectorAll("[data-resize-slot]").forEach((handle) => {
+    handle.onpointerdown = (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      timelineDrag = {
+        index: Number(handle.dataset.resizeSlot),
+        edge: handle.dataset.resizeEdge,
+      };
+      document.body.classList.add("is-resizing-timeline");
+      handle.closest(".schedule-timeline-slot")?.classList.add("is-resizing");
+      try { handle.setPointerCapture(event.pointerId); } catch { /* ignore */ }
     };
   });
 }
 
-function applyTimingSetup(timeRows) {
+function currentTimeRows() {
+  return normalizeSchedule(project).setup.timeRows || [];
+}
+
+function applyTimingSetup(timeRows, { persist = true } = {}) {
   const synced = syncSetupFromTimeRows(timeRows);
   const current = normalizeSchedule(project).setup;
+  const workingDays = [...app.querySelectorAll("#setup-days input:checked")].map((input) => input.value);
   project.schedule.setup = {
     ...current,
-    workingDays: [...app.querySelectorAll("#setup-days input:checked")].map((input) => input.value),
+    workingDays: workingDays.length ? workingDays : current.workingDays,
     ...synced,
   };
   if (!project.schedule.setup.workingDays.length) project.schedule.setup.workingDays = [...WEEK_DAYS];
   normalizeSchedule(project);
-  save();
+  if (persist) save();
 }
 
-function saveTimingSetup(options = {}) {
-  const periods = Math.min(12, Math.max(1, Number(app.querySelector("#setup-period-count")?.value) || 6));
-  let timeRows = readTimeRowsFromDom();
-  if (!timeRows.length) timeRows = normalizeSchedule(project).setup.timeRows;
-  timeRows = adjustTimeRowsForPeriodCount(timeRows, periods);
-  applyTimingSetup(timeRows);
-  if (options.rerender) render();
+function saveTimingSetup() {
+  applyTimingSetup(currentTimeRows());
+}
+
+function applyTimelineDrag(clientX) {
+  if (!timelineDrag) return;
+  const bar = app.querySelector(".schedule-timeline-bar");
+  if (!bar) return;
+  const next = resizeTimeSlot(
+    currentTimeRows(),
+    timelineDrag.index,
+    timelineDrag.edge,
+    minutesFromBar(clientX, bar.getBoundingClientRect()),
+  );
+  applyTimingSetup(next, { persist: false });
+  const setup = project.schedule.setup;
+  const span = TIMELINE.endMinutes - TIMELINE.startMinutes;
+  app.querySelectorAll(".schedule-timeline-slot").forEach((el) => {
+    const index = Number(el.dataset.slotIndex);
+    const row = setup.timeRows[index];
+    if (!row) return;
+    const start = timeToMinutes(row.start) ?? TIMELINE.startMinutes;
+    const end = timeToMinutes(row.end) ?? start + TIMELINE.minDuration;
+    el.style.left = `${((start - TIMELINE.startMinutes) / span) * 100}%`;
+    el.style.width = `${(Math.max(5, end - start) / span) * 100}%`;
+    const kind = row.type === "break" ? "Break" : "Period";
+    const label = row.type === "break" ? (row.label || "Break") : `Period ${row.period}`;
+    const mins = timeRowDuration(row);
+    el.title = `${kind}: ${label} ${row.start || "—"}–${row.end || "—"}${mins ? ` · ${mins} min` : ""}`;
+    const minsEl = el.querySelector(".schedule-timeline-mins");
+    if (minsEl) minsEl.textContent = `${mins}m`;
+  });
+  const legend = app.querySelector(".schedule-timeline-legend");
+  if (legend) {
+    legend.innerHTML = setup.timeRows.map((row) => timelineLegendItem(row)).join("");
+  }
+}
+
+function syncScheduleView(workingDays) {
+  const days = workingDays.filter((day) => WEEK_DAYS.includes(day));
+  if (!days.includes(scheduleDay)) scheduleDay = days[0] || "Monday";
+  schedulePickedDays = schedulePickedDays.filter((day) => days.includes(day));
+  if (!schedulePickedDays.length) schedulePickedDays = scheduleDay ? [scheduleDay] : [...days];
+  if (scheduleViewMode === "some" && !schedulePickedDays.includes(scheduleDay)) {
+    scheduleDay = schedulePickedDays[0] || days[0] || "Monday";
+  }
+}
+
+function visibleGridDays(workingDays) {
+  if (scheduleViewMode === "one") {
+    return workingDays.filter((day) => day === scheduleDay);
+  }
+  if (scheduleViewMode === "some") {
+    const picked = workingDays.filter((day) => schedulePickedDays.includes(day));
+    return picked.length ? picked : workingDays.filter((day) => day === scheduleDay);
+  }
+  return workingDays;
+}
+
+function setScheduleViewMode(mode, workingDays) {
+  if (mode === "some") {
+    schedulePickedDays = scheduleViewMode === "all"
+      ? [...workingDays]
+      : (schedulePickedDays.length ? schedulePickedDays : [scheduleDay]);
+    if (!schedulePickedDays.includes(scheduleDay)) schedulePickedDays = [...schedulePickedDays, scheduleDay];
+  }
+  scheduleViewMode = mode;
 }
 
 function renderSchedule() {
   const schedule = normalizeSchedule(project);
   const setup = schedule.setup;
   if (!project.rows.some((row) => row.id === scheduleRowId)) scheduleRowId = project.rows[0]?.id || null;
-  if (!setup.workingDays.includes(scheduleDay)) scheduleDay = setup.workingDays[0] || "Monday";
+  syncScheduleView(setup.workingDays);
+  const gridDays = visibleGridDays(setup.workingDays);
   const selectedRow = project.rows.find((row) => row.id === scheduleRowId);
   const staffGroups = sectionStaffGroups(project, scheduleRowId);
   const columns = scheduleGridColumns(setup);
@@ -767,6 +866,11 @@ function renderSchedule() {
     : staffGroups;
   const visible = filtered.slice(0, scheduleVisibleCount);
   const hiddenCount = Math.max(0, filtered.length - scheduleVisibleCount);
+  const viewModes = [
+    { id: "one", label: "One day" },
+    { id: "some", label: "Specific days" },
+    { id: "all", label: "All days" },
+  ];
 
   app.innerHTML = `
     <div class="map-page">
@@ -792,8 +896,22 @@ function renderSchedule() {
                 ${project.rows.map((row) => `<option value="${row.id}" ${row.id === scheduleRowId ? "selected" : ""}>${esc(sectionLabel(row))}</option>`).join("")}
               </select>
             </label>
-            <div class="schedule-day-tabs" role="tablist" aria-label="Weekday">
-              ${setup.workingDays.map((day) => `<button type="button" class="${day === scheduleDay ? "active" : ""}" data-schedule-day="${day}">${day}</button>`).join("")}
+            <div class="schedule-view-toggle" role="radiogroup" aria-label="Days to show in the timetable">
+              ${viewModes.map((mode) => `
+                <button type="button" role="radio" aria-checked="${scheduleViewMode === mode.id ? "true" : "false"}"
+                  class="${scheduleViewMode === mode.id ? "active" : ""}" data-view-mode="${mode.id}">${mode.label}</button>
+              `).join("")}
+            </div>
+            <div class="schedule-day-tabs" role="${scheduleViewMode === "some" ? "group" : "tablist"}" aria-label="${scheduleViewMode === "some" ? "Days to include" : "Weekday"}">
+              ${setup.workingDays.map((day) => {
+                const picked = scheduleViewMode !== "some" || schedulePickedDays.includes(day);
+                const focused = day === scheduleDay;
+                const canHide = scheduleViewMode === "some" && schedulePickedDays.length > 1 && picked;
+                const pressed = scheduleViewMode === "some" ? ` aria-pressed="${picked}"` : ` aria-selected="${focused}"`;
+                return `<button type="button"
+                  class="${focused ? "active" : ""} ${scheduleViewMode === "some" && picked ? "picked" : ""} ${scheduleViewMode === "some" && !picked ? "is-off" : ""}"
+                  data-schedule-day="${day}"${pressed}>${esc(day)}${canHide ? `<span class="schedule-day-unpick" data-unpick-day="${day}" title="Hide ${esc(day)}" aria-label="Hide ${esc(day)}">${ICON.close}</span>` : ""}</button>`;
+              }).join("")}
             </div>
             <span class="schedule-period-badge">${setup.periodsPerDay} period${setup.periodsPerDay === 1 ? "" : "s"} per day</span>
           </section>
@@ -802,7 +920,7 @@ function renderSchedule() {
             <section class="schedule-availability-panel" aria-label="Faculty availability for ${esc(scheduleDay)}">
               <div class="schedule-card-head">
                 <h2>${esc(scheduleDay)} availability</h2>
-                <p>One row per faculty member. Drag a green period box into the timetable, or click it to mark that period busy. When someone holds more than one subject here, you choose which one after the drop.</p>
+                <p>Subject is listed first, with the faculty name underneath. Drag a green period box onto ${esc(scheduleDay)} in the grid, or click it to mark that period busy.</p>
               </div>
               <div class="schedule-availability-toolbar">
                 <label class="schedule-availability-search">
@@ -828,7 +946,7 @@ function renderSchedule() {
             <section class="schedule-grid-card" aria-label="Timetable grid">
               <div class="schedule-card-head">
                 <h2>${esc(selectedRow ? sectionLabel(selectedRow) : "Section timetable")}</h2>
-                <p>Selected day is highlighted. Double-click a filled teaching cell to clear it.</p>
+                <p>${gridDays.length === 1 ? "Click the × on a filled cell, or click this section’s chip in the availability row, to release that period." : `Showing ${gridDays.length} days. Drag onto the highlighted ${esc(scheduleDay)} row. Click the × on a filled cell, or this section’s availability chip, to release a period.`}</p>
               </div>
               <div class="schedule-grid-wrap">
                 <table class="schedule-grid">
@@ -839,7 +957,7 @@ function renderSchedule() {
                     </tr>
                   </thead>
                   <tbody>
-                    ${setup.workingDays.map((day) => renderScheduleDayRow(day, columns, scheduleRowId)).join("")}
+                    ${gridDays.map((day) => renderScheduleDayRow(day, columns, scheduleRowId)).join("")}
                   </tbody>
                 </table>
               </div>
@@ -856,20 +974,18 @@ function renderSchedule() {
   bindSchedule();
 }
 
-function staffSubjectLabel(group) {
-  return group.assignments
-    .map((assignment) => `${assignment.title} · ${assignment.role}`)
-    .join(" • ");
-}
-
 function renderStaffAvailability(group, columns, selectedRow) {
   const colTemplate = scheduleColumnTemplate(columns);
   const multi = group.assignments.length > 1;
   return `
     <div class="schedule-availability-row">
       <div class="schedule-staff-card-meta">
-        <strong>${esc(group.staff)}</strong>
-        <span>${esc(staffSubjectLabel(group))}</span>
+        <div class="schedule-staff-subjects">
+          ${group.assignments.map((assignment) => `
+            <span class="schedule-staff-subject"><b>${esc(assignment.title)}</b><em>${esc(assignment.role)}</em></span>
+          `).join("")}
+        </div>
+        <span class="schedule-staff-name">${esc(group.staff)}</span>
         ${multi ? `<span class="schedule-staff-multi">${group.assignments.length} subjects · choose on drop</span>` : ""}
       </div>
       <div class="schedule-period-boxes" style="grid-template-columns:${colTemplate}">
@@ -887,17 +1003,20 @@ function renderAvailabilityColumn(group, selectedRow, column) {
 }
 
 function renderAvailabilityBox(group, selectedRow, period) {
-  const booked = staffBooking(project, group.staff, scheduleDay, period, selectedRow?.id);
+  const placement = staffPeriodPlacement(project, group.staff, scheduleDay, period);
   const busy = isStaffBusy(project, group.staff, scheduleDay, period);
-  if (booked) {
-    return `<span class="schedule-period-box booked" title="Booked in ${esc(booked.section)}" aria-label="P${period} booked">Booked</span>`;
+  if (placement) {
+    const chip = esc(placement.section || placement.sectionId);
+    const title = `${placement.section} · ${placement.slot.title || ""} · ${placement.slot.role || ""}`.trim();
+    const isCurrent = selectedRow && placement.rowId === selectedRow.id;
+    if (isCurrent) {
+      return `<button type="button" class="schedule-period-box assigned" data-release-period="${period}"
+        title="In ${chip}. Click to release." aria-label="P${period} in ${chip}. Click to release.">${chip}</button>`;
+    }
+    return `<span class="schedule-period-box booked" title="${esc(title)}" aria-label="P${period} in ${chip}">${chip}</span>`;
   }
   if (busy) {
     return `<button type="button" class="schedule-period-box busy" data-toggle-busy="${esc(group.staff)}" data-period="${period}" title="Marked busy. Click to make available." aria-label="P${period} busy">Busy</button>`;
-  }
-  const placed = selectedRow ? getSlot(project, selectedRow.id, scheduleDay, period) : null;
-  if (placed?.staff === group.staff) {
-    return `<span class="schedule-period-box assigned" title="${esc(placed.title)} · ${esc(placed.role)}" aria-label="P${period} assigned">Assigned</span>`;
   }
   return `<button type="button" class="schedule-period-box available" draggable="true"
     data-drag-assignment="1"
@@ -937,9 +1056,14 @@ function renderScheduleDayRow(day, columns, rowId) {
       const slot = getSlot(project, rowId, day, column.period);
       return `<td class="schedule-drop-cell ${slot ? "filled" : ""}" data-drop-day="${day}" data-drop-period="${column.period}" data-drop-row="${rowId}">
         ${slot ? `<div class="schedule-slot" draggable="true" data-slot-row="${rowId}" data-slot-day="${day}" data-slot-period="${column.period}">
+          <button type="button" class="map-icon-btn danger schedule-slot-clear" data-clear-slot="1" title="Release this period" aria-label="Release this period">${ICON.close}</button>
           <strong>${esc(slot.title)}</strong>
           <span>${esc(slot.staff)}</span>
           <em>${esc(slot.role)}</em>
+          ${slot.support?.staff ? `<div class="schedule-slot-support">
+            <span>${esc(slot.support.staff)} · ${esc(slot.support.role)}</span>
+            <button type="button" class="map-icon-btn danger" data-remove-support="1" title="Remove supporting staff" aria-label="Remove supporting staff">${ICON.close}</button>
+          </div>` : ""}
         </div>` : `<span class="schedule-drop-hint">Drop</span>`}
       </td>`;
     }).join("")}
@@ -962,9 +1086,32 @@ function bindSchedule() {
     scheduleVisibleCount = 7;
     render();
   };
-  app.querySelectorAll("[data-schedule-day]").forEach((button) => {
+  app.querySelectorAll("[data-view-mode]").forEach((button) => {
     button.onclick = () => {
-      scheduleDay = button.dataset.scheduleDay;
+      const workingDays = normalizeSchedule(project).setup.workingDays;
+      setScheduleViewMode(button.dataset.viewMode, workingDays);
+      render();
+    };
+  });
+  app.querySelectorAll("[data-unpick-day]").forEach((button) => {
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const day = button.dataset.unpickDay;
+      if (schedulePickedDays.length <= 1) return;
+      schedulePickedDays = schedulePickedDays.filter((item) => item !== day);
+      if (scheduleDay === day) scheduleDay = schedulePickedDays[0];
+      render();
+    };
+  });
+  app.querySelectorAll("[data-schedule-day]").forEach((button) => {
+    button.onclick = (event) => {
+      if (event.target.closest("[data-unpick-day]")) return;
+      const day = button.dataset.scheduleDay;
+      if (scheduleViewMode === "some" && !schedulePickedDays.includes(day)) {
+        schedulePickedDays = [...schedulePickedDays, day];
+      }
+      scheduleDay = day;
       render();
     };
   });
@@ -994,6 +1141,14 @@ function bindSchedule() {
       render();
     };
   });
+  app.querySelectorAll("[data-release-period]").forEach((button) => {
+    button.onclick = () => {
+      if (!scheduleRowId) return;
+      clearSlot(project, scheduleRowId, scheduleDay, button.dataset.releasePeriod);
+      save();
+      render();
+    };
+  });
   app.querySelectorAll("[data-drag-assignment]").forEach((button) => {
     button.addEventListener("dragstart", (event) => {
       scheduleDragActive = true;
@@ -1012,6 +1167,10 @@ function bindSchedule() {
   });
   app.querySelectorAll("[data-slot-row]").forEach((slot) => {
     slot.addEventListener("dragstart", (event) => {
+      if (event.target.closest("button")) {
+        event.preventDefault();
+        return;
+      }
       const current = getSlot(project, slot.dataset.slotRow, slot.dataset.slotDay, slot.dataset.slotPeriod);
       if (!current) return;
       scheduleDragActive = true;
@@ -1039,11 +1198,39 @@ function bindSchedule() {
       cell.classList.remove("drop-over");
       handleScheduleDrop(cell, event);
     });
-    cell.addEventListener("dblclick", () => {
+    cell.addEventListener("dblclick", (event) => {
+      if (event.target.closest("button")) return;
       clearSlot(project, cell.dataset.dropRow, cell.dataset.dropDay, cell.dataset.dropPeriod);
       save();
       render();
     });
+  });
+  app.querySelectorAll("[data-clear-slot]").forEach((button) => {
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const cell = button.closest("[data-drop-row]");
+      if (!cell) return;
+      clearSlot(project, cell.dataset.dropRow, cell.dataset.dropDay, cell.dataset.dropPeriod);
+      save();
+      render();
+    };
+  });
+  app.querySelectorAll("[data-remove-support]").forEach((button) => {
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const cell = button.closest("[data-drop-row]");
+      if (!cell) return;
+      const slot = getSlot(project, cell.dataset.dropRow, cell.dataset.dropDay, cell.dataset.dropPeriod);
+      if (!slot) return;
+      setSlot(project, cell.dataset.dropRow, cell.dataset.dropDay, cell.dataset.dropPeriod, {
+        ...slot,
+        support: null,
+      });
+      save();
+      render();
+    };
   });
   app.querySelectorAll("[data-cancel-choice]").forEach((element) => {
     element.onclick = () => {
@@ -1063,14 +1250,26 @@ function bindSchedule() {
   });
 }
 
-function placeAssignment(rowId, day, period, assignment) {
-  setSlot(project, rowId, day, period, {
-    columnId: assignment.columnId,
-    staff: assignment.staff,
-    title: assignment.title,
-    role: assignment.role,
-    kind: assignment.kind,
-  });
+function placeAssignment(rowId, day, period, assignment, options = {}) {
+  const payload = assignmentRecord(assignment);
+  if (options.attachSupport === false) {
+    payload.support = assignment.support?.staff ? assignmentRecord(assignment.support) : null;
+  } else if (assignment.kind !== "support") {
+    const support = linkedSupportAssignment(project, rowId, assignment);
+    if (support) {
+      if (isStaffBusy(project, support.staff, day, period)) {
+        toast(`${support.staff} is marked busy, so supporting staff was not added.`, "error");
+      } else {
+        const booked = staffBooking(project, support.staff, day, period, rowId);
+        if (booked) {
+          toast(`${support.staff} is already in ${booked.section}, so supporting staff was not added.`, "error");
+        } else {
+          payload.support = support;
+        }
+      }
+    }
+  }
+  setSlot(project, rowId, day, period, payload);
 }
 
 function handleScheduleDrop(cell, event) {
@@ -1109,7 +1308,7 @@ function handleScheduleDrop(cell, event) {
   }
   if (data.type === "move") {
     clearSlot(project, data.fromRowId, data.fromDay, data.fromPeriod);
-    placeAssignment(rowId, day, period, data.assignment);
+    placeAssignment(rowId, day, period, data.assignment, { attachSupport: false });
     save();
     render();
     return;
@@ -1769,15 +1968,31 @@ function finishRowDrag() {
 }
 
 document.addEventListener("pointermove", (event) => {
+  if (timelineDrag) {
+    applyTimelineDrag(event.clientX);
+    return;
+  }
   if (!rowDrag) return;
   updateRowDragOver(event.clientX, event.clientY);
 });
 
 document.addEventListener("pointerup", () => {
+  if (timelineDrag) {
+    document.body.classList.remove("is-resizing-timeline");
+    timelineDrag = null;
+    save();
+    render();
+    return;
+  }
   if (rowDrag) finishRowDrag();
 });
 
 document.addEventListener("pointercancel", () => {
+  if (timelineDrag) {
+    document.body.classList.remove("is-resizing-timeline");
+    timelineDrag = null;
+    save();
+  }
   if (!rowDrag) return;
   document.body.classList.remove("is-row-dragging");
   app.querySelectorAll("tr[data-row]").forEach((row) => {
