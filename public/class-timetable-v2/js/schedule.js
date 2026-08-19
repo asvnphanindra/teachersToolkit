@@ -301,6 +301,26 @@ export function sectionAssignments(project, rowId) {
   })).filter((assignment) => assignment.staff);
 }
 
+/**
+ * One entry per staff member for a section, even when they hold several
+ * subjects or labs there. The subject is chosen when a period is placed.
+ */
+export function sectionStaffGroups(project, rowId) {
+  const groups = new Map();
+  sectionAssignments(project, rowId).forEach((assignment) => {
+    if (!groups.has(assignment.staff)) {
+      groups.set(assignment.staff, { staff: assignment.staff, assignments: [] });
+    }
+    groups.get(assignment.staff).assignments.push(assignment);
+  });
+  return [...groups.values()];
+}
+
+export function staffOptionsFor(project, rowId, staff) {
+  return sectionStaffGroups(project, rowId)
+    .find((group) => group.staff === staff)?.assignments || [];
+}
+
 export function getSlot(project, rowId, day, period) {
   return project.schedule?.slots?.[rowId]?.[day]?.[String(period)] || null;
 }
@@ -350,4 +370,66 @@ export function staffBooking(project, staff, day, period, excludeRowId = null) {
     }
   }
   return null;
+}
+
+export function scheduleStats(project) {
+  const schedule = project.schedule ? normalizeSchedule(project) : null;
+  const workingDays = schedule?.setup?.workingDays || [];
+  const periodsPerDay = schedule?.setup?.periodsPerDay || 0;
+  const totalSlots = project.rows.length * workingDays.length * periodsPerDay;
+  let placedPeriods = 0;
+  const sectionsTouched = new Set();
+  const faculty = new Set();
+
+  project.rows.forEach((row) => {
+    workingDays.forEach((day) => {
+      for (let period = 1; period <= periodsPerDay; period += 1) {
+        const slot = schedule?.slots?.[row.id]?.[day]?.[String(period)];
+        if (!slot?.staff) continue;
+        placedPeriods += 1;
+        sectionsTouched.add(row.id);
+        faculty.add(slot.staff);
+      }
+    });
+  });
+
+  return {
+    placedPeriods,
+    emptySlots: Math.max(0, totalSlots - placedPeriods),
+    totalSlots,
+    sectionsTouched: sectionsTouched.size,
+    sectionCount: project.rows.length,
+    facultyCount: faculty.size,
+    workingDays: workingDays.length,
+    periodsPerDay,
+  };
+}
+
+/** Invert schedule.slots into staff -> day -> period entries. */
+export function facultyTimetables(project) {
+  const schedule = project.schedule ? normalizeSchedule(project) : { setup: { workingDays: [] }, slots: {} };
+  const byStaff = new Map();
+
+  project.rows.forEach((row) => {
+    const section = sectionLabel(row);
+    const days = schedule.slots?.[row.id] || {};
+    Object.entries(days).forEach(([day, periods]) => {
+      Object.entries(periods || {}).forEach(([period, slot]) => {
+        const staff = String(slot?.staff || "").trim();
+        if (!staff) return;
+        if (!byStaff.has(staff)) byStaff.set(staff, {});
+        if (!byStaff.get(staff)[day]) byStaff.get(staff)[day] = {};
+        byStaff.get(staff)[day][String(period)] = {
+          ...slot,
+          rowId: row.id,
+          section,
+        };
+      });
+    });
+  });
+
+  return [...byStaff.keys()].sort((a, b) => a.localeCompare(b)).map((staff) => ({
+    staff,
+    days: byStaff.get(staff),
+  }));
 }

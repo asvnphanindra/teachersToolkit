@@ -1,4 +1,12 @@
 import { columnHeader } from "./models.js";
+import { facultySummaryTables } from "./summary.js";
+import {
+  facultyTimetables,
+  getSlot,
+  normalizeSchedule,
+  scheduleGridColumns,
+  sectionLabel,
+} from "./schedule.js";
 
 const esc = (value = "") => String(value).replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
@@ -59,20 +67,110 @@ function printColumnGroups(columns) {
   return classes;
 }
 
+const PRINT_BASE_CSS = `
+  @page { size: landscape; margin: 12mm; }
+  :root { color: #0f1c2e; font-family: Arial, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-size: 10pt; }
+  header { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid #1e3a5f; }
+  h1 { margin: 0 0 4px; color: #1e3a5f; font-size: 20pt; }
+  p { margin: 0; color: #4b5f75; }
+  .file { text-align: right; font-size: 8.5pt; }
+  .file strong { color: #0f1c2e; overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; table-layout: auto; }
+  th, td { border: 1px solid #b9c6d5; padding: 7px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+  th { background: #eaf0fa; color: #1e3a5f; font-size: 8.5pt; }
+  tbody tr:nth-child(even) { background: #f7f9fc; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  .sheet { page-break-after: always; }
+  .sheet:last-child { page-break-after: auto; }
+  .slot strong, .slot span { display: block; }
+  .slot span { color: #4b5f75; font-size: 8.5pt; }
+  .break-cell { background: #f3f4f6; color: #4b5f75; text-align: center; }
+  .empty { color: #94a3b8; }
+  .summary-role { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.04em; }
+  .summary-role--teaching { background: #eaf3ff; color: #1558a6; }
+  .summary-role--support { background: #f1f2f4; color: #4b5f75; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+`;
+
+function openPrintWindow(filename, bodyHtml, extraCss = "") {
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    throw new Error("Allow pop-ups to export as a PDF.");
+  }
+  printWindow.opener = null;
+  printWindow.document.title = filename;
+  printWindow.document.write(`<!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${esc(filename)}</title>
+        <style>${PRINT_BASE_CSS}${extraCss}</style>
+      </head>
+      <body>${bodyHtml}</body>
+    </html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 300);
+  return filename;
+}
+
+function exportMeta(project, kind) {
+  const now = new Date();
+  const filename = `${filenamePart(project.name)}-${kind}-${timestampPart(now)}.pdf`;
+  const exportedAt = now.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  });
+  return { filename, exportedAt };
+}
+
+function sheetHeader(project, title, subtitle, filename, exportedAt) {
+  return `<header>
+    <div>
+      <h1>${esc(title)}</h1>
+      <p>${esc(subtitle)}</p>
+    </div>
+    <p class="file">Exported: ${esc(exportedAt)}<br>File name: <strong>${esc(filename)}</strong></p>
+  </header>`;
+}
+
+function timetableGridHtml(columns, workingDays, cellFor) {
+  return `<table>
+    <thead>
+      <tr>
+        <th>Day</th>
+        ${columns.map((column) => `<th>${esc(column.label)}${column.time ? `<br>${esc(column.time)}` : ""}</th>`).join("")}
+      </tr>
+    </thead>
+    <tbody>
+      ${workingDays.map((day) => `
+        <tr>
+          <th scope="row">${esc(day)}</th>
+          ${columns.map((column) => {
+            if (column.type === "break") {
+              return `<td class="break-cell">${esc(column.label)}</td>`;
+            }
+            const slot = cellFor(day, column.period);
+            if (!slot) return `<td class="empty">—</td>`;
+            const line = slot.section ? slot.section : slot.staff;
+            return `<td class="slot"><strong>${esc(slot.title || "")}</strong><span>${esc(line || "")}${slot.role ? ` · ${esc(slot.role)}` : ""}</span></td>`;
+          }).join("")}
+        </tr>
+      `).join("")}
+    </tbody>
+  </table>`;
+}
+
 /**
  * Opens a dedicated print sheet. The browser's Print dialog can save it as a PDF;
  * document.title supplies a useful default filename in supporting browsers.
  */
 export function exportMappingPdf(project) {
-  const now = new Date();
-  const filename = `${filenamePart(project.name)}-mapping-${timestampPart(now)}.pdf`;
-  const printWindow = window.open("", "_blank");
-
-  if (!printWindow) {
-    throw new Error("Allow pop-ups to export the mapping as a PDF.");
-  }
-  printWindow.opener = null;
-
+  const { filename, exportedAt } = exportMeta(project, "mapping");
   const columnGroups = printColumnGroups(project.columns);
   const headers = project.columns.map((column) => `
     <th class="${columnGroups[column.id] || ""}">${printColumnHeader(column)}</th>
@@ -82,61 +180,126 @@ export function exportMappingPdf(project) {
       <td class="${columnGroups[column.id] || ""}">${esc(row.cells[column.id] || "—")}</td>
     `).join("")}</tr>
   `).join("");
-  const exportedAt = now.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "medium",
-  });
+  const extraCss = `
+    th .mapped-item, th .support-role { display: block; }
+    th .support-role { margin-top: 2px; color: #4b5f75; font-size: 7.5pt; font-weight: normal; }
+    .staff-group--0 { background: #e6e8eb; }
+    .staff-group--1 { background: #f1f2f4; }
+    th.staff-group { border-top: 2px solid #7a8088; }
+    .staff-group-start { border-left: 2px solid #7a8088; }
+    .staff-group-end { border-right: 2px solid #7a8088; }
+  `;
+  const body = `<section>
+    ${sheetHeader(
+      project,
+      project.name || "Class timetable mapping",
+      `Class Timetable · Plan · Mapping · ${project.rows.length} section${project.rows.length === 1 ? "" : "s"}`,
+      filename,
+      exportedAt,
+    )}
+    <table>
+      <thead><tr>${headers}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </section>`;
+  return openPrintWindow(filename, body, extraCss);
+}
 
-  printWindow.document.title = filename;
-  printWindow.document.write(`<!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${esc(filename)}</title>
-        <style>
-          @page { size: landscape; margin: 12mm; }
-          :root { color: #0f1c2e; font-family: Arial, sans-serif; }
-          * { box-sizing: border-box; }
-          body { margin: 0; font-size: 10pt; }
-          header { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid #1e3a5f; }
-          h1 { margin: 0 0 4px; color: #1e3a5f; font-size: 20pt; }
-          p { margin: 0; color: #4b5f75; }
-          .file { text-align: right; font-size: 8.5pt; }
-          .file strong { color: #0f1c2e; overflow-wrap: anywhere; }
-          table { width: 100%; border-collapse: collapse; table-layout: auto; }
-          th, td { border: 1px solid #b9c6d5; padding: 7px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
-          th { background: #eaf0fa; color: #1e3a5f; font-size: 8.5pt; }
-          th .mapped-item, th .support-role { display: block; }
-          th .support-role { margin-top: 2px; color: #4b5f75; font-size: 7.5pt; font-weight: normal; }
-          .staff-group--0 { background: #e6e8eb; }
-          .staff-group--1 { background: #f1f2f4; }
-          th.staff-group { border-top: 2px solid #7a8088; }
-          .staff-group-start { border-left: 2px solid #7a8088; }
-          .staff-group-end { border-right: 2px solid #7a8088; }
-          tbody tr:nth-child(even) { background: #f7f9fc; }
-          thead { display: table-header-group; }
-          tr { break-inside: avoid; }
-          @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-        </style>
-      </head>
-      <body>
-        <header>
-          <div>
-            <h1>${esc(project.name || "Class timetable mapping")}</h1>
-            <p>Class Timetable V2 · Step 1: Mapping · ${project.rows.length} section${project.rows.length === 1 ? "" : "s"}</p>
-          </div>
-          <p class="file">Exported: ${esc(exportedAt)}<br>File name: <strong>${esc(filename)}</strong></p>
-        </header>
-        <table>
-          <thead><tr>${headers}</tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </body>
-    </html>`);
-  printWindow.document.close();
-  printWindow.focus();
-  // Give the standalone document a moment to finish layout before printing.
-  setTimeout(() => printWindow.print(), 300);
-  return filename;
+export function exportSectionTimetablesPdf(project, options = {}) {
+  const schedule = normalizeSchedule(project);
+  const columns = scheduleGridColumns(schedule.setup);
+  const rows = options.rowId
+    ? project.rows.filter((row) => row.id === options.rowId)
+    : project.rows;
+  if (!rows.length) throw new Error("No sections to export.");
+  const { filename, exportedAt } = exportMeta(project, "sections");
+  const body = rows.map((row) => `
+    <section class="sheet">
+      ${sheetHeader(
+        project,
+        sectionLabel(row),
+        `Class Timetable · Export · Section timetable · ${project.name || "Untitled"}`,
+        filename,
+        exportedAt,
+      )}
+      ${timetableGridHtml(columns, schedule.setup.workingDays, (day, period) => getSlot(project, row.id, day, period))}
+    </section>
+  `).join("");
+  return openPrintWindow(filename, body);
+}
+
+export function exportFacultyTimetablesPdf(project, options = {}) {
+  const schedule = normalizeSchedule(project);
+  const columns = scheduleGridColumns(schedule.setup);
+  let tables = facultyTimetables(project);
+  if (options.staff) {
+    tables = tables.filter((entry) => entry.staff === options.staff);
+  }
+  if (!tables.length) throw new Error("No faculty assignments to export yet.");
+  const { filename, exportedAt } = exportMeta(project, "faculty");
+  const body = tables.map((entry) => `
+    <section class="sheet">
+      ${sheetHeader(
+        project,
+        entry.staff,
+        `Class Timetable · Export · Faculty timetable · ${project.name || "Untitled"}`,
+        filename,
+        exportedAt,
+      )}
+      ${timetableGridHtml(columns, schedule.setup.workingDays, (day, period) => entry.days?.[day]?.[String(period)] || null)}
+    </section>
+  `).join("");
+  return openPrintWindow(filename, body);
+}
+
+export function exportFacultySummaryPdf(project) {
+  const tables = facultySummaryTables(project);
+  if (!tables.length) throw new Error("Add a subject or lab before exporting the faculty summary.");
+  const { filename, exportedAt } = exportMeta(project, "faculty-summary");
+  const body = `
+    <section>
+      ${sheetHeader(
+        project,
+        project.name || "Faculty summary",
+        `Class Timetable · Plan · Faculty summary · ${project.rows.length} section${project.rows.length === 1 ? "" : "s"}`,
+        filename,
+        exportedAt,
+      )}
+      ${tables.map((table) => {
+        const columnCount = table.hasLab ? 4 : 3;
+        const roleBlock = (rows, label, roleClass, startAt) => {
+          if (!rows.length) return "";
+          return `
+            <tr class="summary-role ${roleClass}"><th colspan="${columnCount}">${esc(label)}</th></tr>
+            ${rows.map((row, index) => `
+              <tr>
+                <td>${startAt + index + 1}</td>
+                <td>${esc(row.staff)}</td>
+                <td>${table.type === "lab" ? row.labAssignments.length : row.subjectAssignments.length}</td>
+                ${table.hasLab ? `<td>${row.labAssignments.length}</td>` : ""}
+              </tr>
+            `).join("")}
+          `;
+        };
+        return `
+          <h2 style="margin:16px 0 8px;color:#1e3a5f;font-size:13pt">${esc(table.title)}</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>S. No.</th>
+                <th>Staff member</th>
+                <th>Sections</th>
+                ${table.hasLab ? "<th>Lab sections</th>" : ""}
+              </tr>
+            </thead>
+            <tbody>
+              ${roleBlock(table.staffRows, "Teaching staff", "summary-role--teaching", 0)}
+              ${roleBlock(table.supportRows, "Supporting staff", "summary-role--support", table.staffRows.length)}
+            </tbody>
+          </table>
+        `;
+      }).join("")}
+    </section>
+  `;
+  return openPrintWindow(filename, body);
 }
