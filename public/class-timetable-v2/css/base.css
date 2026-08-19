@@ -1703,6 +1703,72 @@ body.is-resizing-timeline .schedule-timeline-label-input {
   margin-top: var(--ct-space-3);
 }
 
+.schedule-load-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ct-space-2);
+}
+
+.schedule-load-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ct-space-3);
+  padding: var(--ct-space-2) 0;
+  border-bottom: 1px solid var(--ct-border);
+}
+
+.schedule-load-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.schedule-load-name {
+  flex: 1 1 120px;
+  min-width: 88px;
+  color: var(--ct-text);
+  font-size: var(--ct-fs-label);
+  font-weight: var(--ct-fw-semibold);
+}
+
+.schedule-load-periods {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ct-space-2);
+  color: var(--ct-text-secondary);
+  font-size: var(--ct-fs-caption);
+}
+
+.schedule-load-periods input {
+  width: 4.5rem;
+  padding: 6px 8px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-surface-muted);
+  color: var(--ct-text);
+  font: inherit;
+}
+
+.schedule-load-periods input:focus {
+  outline: none;
+  border-color: var(--ct-accent);
+}
+
+.schedule-load-repeat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ct-space-1);
+  color: var(--ct-text-secondary);
+  font-size: var(--ct-fs-caption);
+  cursor: pointer;
+}
+
+.schedule-staff-load {
+  color: var(--ct-text-secondary);
+  font-size: var(--ct-fs-caption);
+  font-weight: var(--ct-fw-semibold);
+}
+
 .schedule-controls {
   display: flex;
   align-items: flex-end;

@@ -9,10 +9,14 @@ import {
   deleteColumn,
   deleteRow,
   fillTestMappingData,
+  isLoadColumn,
   isMappingColumn,
+  loadColumnLabel,
   mappingIssues,
   moveRow,
+  parsePeriodsPerWeek,
   renameMappingColumn,
+  unsetLoadColumns,
 } from "./models.js";
 import {
   deleteProject,
@@ -35,6 +39,8 @@ import {
   TIMELINE,
   assignmentRecord,
   clearSlot,
+  columnLoadIssue,
+  countColumnPeriods,
   facultyTimetables,
   fullMappingIssues,
   getSlot,
@@ -459,7 +465,7 @@ function render() {
 
             <div class="map-table-footer">
               <button type="button" class="btn btn--secondary btn--sm" data-action="add-rows">+ Add rows</button>
-              <button type="button" class="btn btn--primary btn--sm" data-action="start-step-2">Set timings</button>
+              <button type="button" class="btn btn--primary btn--sm" data-action="start-step-2">Plan the week</button>
             </div>
           </div>
 
@@ -657,6 +663,8 @@ function renderTimingSetup() {
               <button type="button" class="btn btn--secondary btn--sm" data-action="add-break">+ Break</button>
             </div>
           </section>
+
+          ${renderSubjectLoadCard()}
         </main>
 
         ${renderFooter("timingSetup")}
@@ -664,6 +672,39 @@ function renderTimingSetup() {
     </div>
   `;
   bindTimingSetup();
+}
+
+function renderSubjectLoadCard() {
+  const columns = (project.columns || []).filter(isLoadColumn);
+  if (!columns.length) return "";
+  return `
+          <section class="schedule-card">
+            <div class="schedule-card-head">
+              <h2>Subject load</h2>
+              <p>These numbers apply to every section. Set periods per week before opening the scheduler.</p>
+            </div>
+            <div class="schedule-load-list">
+              ${columns.map((column) => {
+                const quota = parsePeriodsPerWeek(column.periodsPerWeek);
+                return `
+                <div class="schedule-load-row" data-load-column="${column.id}">
+                  <span class="schedule-load-name">${esc(loadColumnLabel(column))}</span>
+                  <label class="schedule-load-periods">
+                    <span>Periods per week</span>
+                    <input type="number" min="1" max="12" step="1" inputmode="numeric"
+                      data-periods-week="1"
+                      value="${quota == null ? "" : quota}"
+                      aria-label="Periods per week for ${esc(loadColumnLabel(column))}">
+                  </label>
+                  <label class="schedule-load-repeat">
+                    <input type="checkbox" data-allow-repeat="1" ${column.allowSameDayRepeat ? "checked" : ""}>
+                    <span>May repeat on the same day</span>
+                  </label>
+                </div>`;
+              }).join("")}
+            </div>
+          </section>
+  `;
 }
 
 function renderTimelineSegment(row, index, span) {
@@ -703,11 +744,20 @@ function bindTimingSetup() {
   };
   app.querySelector("[data-action='open-schedule']").onclick = () => {
     saveTimingSetup();
+    saveSubjectLoad();
+    const missing = unsetLoadColumns(project);
+    if (missing.length) {
+      toast(`Set periods per week for: ${missing.map(loadColumnLabel).join(", ")}.`, "error");
+      return;
+    }
     view = "schedule";
     render();
   };
   app.querySelectorAll("#setup-days input").forEach((input) => {
     input.onchange = () => saveTimingSetup();
+  });
+  app.querySelectorAll("[data-load-column] [data-periods-week], [data-load-column] [data-allow-repeat]").forEach((input) => {
+    input.onchange = () => saveSubjectLoad();
   });
   app.querySelector("[data-action='add-period']")?.addEventListener("click", () => {
     try {
@@ -777,6 +827,18 @@ function applyTimingSetup(timeRows, { persist = true } = {}) {
 
 function saveTimingSetup() {
   applyTimingSetup(currentTimeRows());
+}
+
+function saveSubjectLoad() {
+  app.querySelectorAll("[data-load-column]").forEach((row) => {
+    const column = project.columns.find((item) => item.id === row.dataset.loadColumn);
+    if (!column || !isLoadColumn(column)) return;
+    const parsed = parsePeriodsPerWeek(row.querySelector("[data-periods-week]")?.value);
+    if (parsed == null) delete column.periodsPerWeek;
+    else column.periodsPerWeek = parsed;
+    column.allowSameDayRepeat = Boolean(row.querySelector("[data-allow-repeat]")?.checked);
+  });
+  save();
 }
 
 function applyTimelineDrag(clientX) {
@@ -882,7 +944,7 @@ function renderSchedule() {
           </div>
           <div class="map-header-actions">
             ${howItWorksButton()}
-            <button type="button" class="btn btn--secondary btn--sm" data-action="edit-timings">Edit timings</button>
+            <button type="button" class="btn btn--secondary btn--sm" data-action="edit-timings">Edit week plan</button>
             <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
             <button type="button" class="btn btn--primary btn--sm" data-action="goto-export">Export</button>
           </div>
@@ -981,9 +1043,18 @@ function renderStaffAvailability(group, columns, selectedRow) {
     <div class="schedule-availability-row">
       <div class="schedule-staff-card-meta">
         <div class="schedule-staff-subjects">
-          ${group.assignments.map((assignment) => `
-            <span class="schedule-staff-subject"><b>${esc(assignment.title)}</b><em>${esc(assignment.role)}</em></span>
-          `).join("")}
+          ${group.assignments.map((assignment) => {
+            const loadColumn = project.columns.find((item) => item.id === assignment.columnId);
+            const quota = parsePeriodsPerWeek(loadColumn?.periodsPerWeek);
+            const used = loadColumn && selectedRow
+              ? countColumnPeriods(project, selectedRow.id, loadColumn.id)
+              : null;
+            const loadCue = quota != null && used != null
+              ? `<span class="schedule-staff-load">${used} / ${quota}</span>`
+              : "";
+            return `
+            <span class="schedule-staff-subject"><b>${esc(assignment.title)}</b><em>${esc(assignment.role)}</em>${loadCue}</span>`;
+          }).join("")}
         </div>
         <span class="schedule-staff-name">${esc(group.staff)}</span>
         ${multi ? `<span class="schedule-staff-multi">${group.assignments.length} subjects · choose on drop</span>` : ""}
@@ -1242,7 +1313,7 @@ function bindSchedule() {
     button.onclick = () => {
       const option = subjectChoice?.options[Number(button.dataset.chooseSubject)];
       if (!option) return;
-      placeAssignment(subjectChoice.rowId, subjectChoice.day, subjectChoice.period, option);
+      if (!placeAssignment(subjectChoice.rowId, subjectChoice.day, subjectChoice.period, option)) return;
       subjectChoice = null;
       save();
       render();
@@ -1251,6 +1322,11 @@ function bindSchedule() {
 }
 
 function placeAssignment(rowId, day, period, assignment, options = {}) {
+  const issue = columnLoadIssue(project, rowId, day, assignment, options.exclude || null);
+  if (issue) {
+    toast(issue, "error");
+    return false;
+  }
   const payload = assignmentRecord(assignment);
   if (options.attachSupport === false) {
     payload.support = assignment.support?.staff ? assignmentRecord(assignment.support) : null;
@@ -1270,6 +1346,7 @@ function placeAssignment(rowId, day, period, assignment, options = {}) {
     }
   }
   setSlot(project, rowId, day, period, payload);
+  return true;
 }
 
 function handleScheduleDrop(cell, event) {
@@ -1307,8 +1384,18 @@ function handleScheduleDrop(cell, event) {
     return;
   }
   if (data.type === "move") {
-    clearSlot(project, data.fromRowId, data.fromDay, data.fromPeriod);
-    placeAssignment(rowId, day, period, data.assignment, { attachSupport: false });
+    const placed = placeAssignment(rowId, day, period, data.assignment, {
+      attachSupport: false,
+      exclude: {
+        rowId: data.fromRowId,
+        day: data.fromDay,
+        period: data.fromPeriod,
+      },
+    });
+    if (!placed) return;
+    if (!(data.fromRowId === rowId && data.fromDay === day && Number(data.fromPeriod) === Number(period))) {
+      clearSlot(project, data.fromRowId, data.fromDay, data.fromPeriod);
+    }
     save();
     render();
     return;
@@ -1320,7 +1407,7 @@ function handleScheduleDrop(cell, event) {
     return;
   }
   if (options.length === 1) {
-    placeAssignment(rowId, day, period, options[0]);
+    if (!placeAssignment(rowId, day, period, options[0])) return;
     save();
     render();
     return;
