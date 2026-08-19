@@ -737,6 +737,30 @@ export function columnLoadIssue(project, rowId, day, assignment, exclude = null)
   return null;
 }
 
+export function plannedWeekLoad(project) {
+  return (project.columns || []).filter(isLoadColumn).reduce((sum, column) => (
+    sum + (parsePeriodsPerWeek(column.periodsPerWeek) || 0)
+  ), 0);
+}
+
+export function weekLoadSummary(project) {
+  const schedule = normalizeSchedule(project);
+  const days = (schedule.setup.workingDays || []).length;
+  const periods = schedule.setup.periodsPerDay || 0;
+  const capacity = days * periods;
+  const planned = plannedWeekLoad(project);
+  const over = planned > capacity;
+  return {
+    planned,
+    capacity,
+    days,
+    periods,
+    empty: over ? 0 : capacity - planned,
+    over,
+    overBy: over ? planned - capacity : 0,
+  };
+}
+
 export function isStaffBusy(project, staff, day, period) {
   return (project.schedule?.facultyBusy?.[staff]?.[day] || []).includes(Number(period));
 }

@@ -65,6 +65,7 @@ import {
   timeToMinutes,
   toggleStaffBusy,
   updateTimeSlotLabel,
+  weekLoadSummary,
 } from "./schedule.js";
 import {
   STAGES,
@@ -674,27 +675,45 @@ function renderTimingSetup() {
   bindTimingSetup();
 }
 
+function weekLoadFooterCopy(summary) {
+  const main = `${summary.planned} / ${summary.capacity} periods this week`;
+  if (summary.over) return `${main} · ${summary.overBy} over capacity`;
+  if (summary.empty === 0) return `${main} · no empty slots`;
+  return `${main} · ${summary.empty} empty`;
+}
+
+function refreshLoadSummary() {
+  const foot = app.querySelector("[data-load-summary]");
+  if (!foot) return;
+  const summary = weekLoadSummary(project);
+  const text = foot.querySelector("[data-load-summary-text]");
+  if (text) text.textContent = weekLoadFooterCopy(summary);
+  foot.classList.toggle("is-over", summary.over);
+}
+
 function renderSubjectLoadCard() {
   const columns = (project.columns || []).filter(isLoadColumn);
   if (!columns.length) return "";
+  const summary = weekLoadSummary(project);
   return `
           <section class="schedule-card">
             <div class="schedule-card-head">
               <h2>Subject load</h2>
-              <p>These numbers apply to every section. Set periods per week before opening the scheduler.</p>
+              <p>These numbers apply to every section. Empty slots are leftover periods in a section week before you open the scheduler.</p>
             </div>
             <div class="schedule-load-list">
               ${columns.map((column) => {
                 const quota = parsePeriodsPerWeek(column.periodsPerWeek);
+                const countLabel = column.kind === "lab" ? "Hours per week" : "Periods per week";
                 return `
                 <div class="schedule-load-row" data-load-column="${column.id}">
                   <span class="schedule-load-name">${esc(loadColumnLabel(column))}</span>
                   <label class="schedule-load-periods">
-                    <span>Periods per week</span>
+                    <span>${countLabel}</span>
                     <input type="number" min="1" max="12" step="1" inputmode="numeric"
                       data-periods-week="1"
                       value="${quota == null ? "" : quota}"
-                      aria-label="Periods per week for ${esc(loadColumnLabel(column))}">
+                      aria-label="${esc(`${countLabel} for ${loadColumnLabel(column)}`)}">
                   </label>
                   <label class="schedule-load-repeat">
                     <input type="checkbox" data-allow-repeat="1" ${column.allowSameDayRepeat ? "checked" : ""}>
@@ -702,6 +721,10 @@ function renderSubjectLoadCard() {
                   </label>
                 </div>`;
               }).join("")}
+              <div class="schedule-load-foot ${summary.over ? "is-over" : ""}" data-load-summary>
+                <p class="schedule-load-foot-main" data-load-summary-text>${esc(weekLoadFooterCopy(summary))}</p>
+                <p class="schedule-load-foot-note">Capacity is working days × periods per day, for each section.</p>
+              </div>
             </div>
           </section>
   `;
@@ -750,13 +773,31 @@ function bindTimingSetup() {
       toast(`Set periods per week for: ${missing.map(loadColumnLabel).join(", ")}.`, "error");
       return;
     }
+    const summary = weekLoadSummary(project);
+    if (summary.over) {
+      toast(`Subject load is ${summary.planned} periods; the week only has ${summary.capacity} (${summary.days} days × ${summary.periods} periods).`, "error");
+      return;
+    }
     view = "schedule";
     render();
   };
   app.querySelectorAll("#setup-days input").forEach((input) => {
-    input.onchange = () => saveTimingSetup();
+    input.onchange = () => {
+      saveTimingSetup();
+      refreshLoadSummary();
+    };
   });
-  app.querySelectorAll("[data-load-column] [data-periods-week], [data-load-column] [data-allow-repeat]").forEach((input) => {
+  app.querySelectorAll("[data-load-column] [data-periods-week]").forEach((input) => {
+    input.oninput = () => {
+      saveSubjectLoad({ persist: false });
+      refreshLoadSummary();
+    };
+    input.onchange = () => {
+      saveSubjectLoad();
+      refreshLoadSummary();
+    };
+  });
+  app.querySelectorAll("[data-load-column] [data-allow-repeat]").forEach((input) => {
     input.onchange = () => saveSubjectLoad();
   });
   app.querySelector("[data-action='add-period']")?.addEventListener("click", () => {
@@ -829,7 +870,7 @@ function saveTimingSetup() {
   applyTimingSetup(currentTimeRows());
 }
 
-function saveSubjectLoad() {
+function saveSubjectLoad({ persist = true } = {}) {
   app.querySelectorAll("[data-load-column]").forEach((row) => {
     const column = project.columns.find((item) => item.id === row.dataset.loadColumn);
     if (!column || !isLoadColumn(column)) return;
@@ -838,7 +879,7 @@ function saveSubjectLoad() {
     else column.periodsPerWeek = parsed;
     column.allowSameDayRepeat = Boolean(row.querySelector("[data-allow-repeat]")?.checked);
   });
-  save();
+  if (persist) save();
 }
 
 function applyTimelineDrag(clientX) {
