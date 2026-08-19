@@ -157,7 +157,8 @@ function timetableGridHtml(columns, workingDays, cellFor) {
             const slot = cellFor(day, column.period);
             if (!slot) return `<td class="empty">—</td>`;
             const line = slot.section ? slot.section : slot.staff;
-            return `<td class="slot"><strong>${esc(slot.title || "")}</strong><span>${esc(line || "")}${slot.role ? ` · ${esc(slot.role)}` : ""}</span></td>`;
+            const support = slot.support?.staff ? `<span>${esc(slot.support.staff)} · ${esc(slot.support.role || "Support")}</span>` : "";
+            return `<td class="slot"><strong>${esc(slot.title || "")}</strong><span>${esc(line || "")}${slot.role ? ` · ${esc(slot.role)}` : ""}</span>${support}</td>`;
           }).join("")}
         </tr>
       `).join("")}
