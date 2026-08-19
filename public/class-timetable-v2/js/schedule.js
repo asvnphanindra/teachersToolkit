@@ -1,4 +1,4 @@
-import { columnHeader, isMappingColumn } from "./models.js";
+import { columnHeader, isLoadColumn, isMappingColumn, parsePeriodsPerWeek } from "./models.js";
 
 export const WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -689,6 +689,52 @@ export function clearSlot(project, rowId, day, period) {
 export function assignmentPlaced(project, rowId, day, columnId, period) {
   const slot = getSlot(project, rowId, day, period);
   return slot?.columnId === columnId;
+}
+
+function slotMatchesExclude(rowId, day, period, exclude) {
+  if (!exclude) return false;
+  return exclude.rowId === rowId
+    && exclude.day === day
+    && String(exclude.period) === String(period);
+}
+
+export function countColumnPeriods(project, rowId, columnId, exclude = null) {
+  const days = project.schedule?.slots?.[rowId] || {};
+  let count = 0;
+  Object.entries(days).forEach(([day, periods]) => {
+    Object.entries(periods || {}).forEach(([period, slot]) => {
+      if (slotMatchesExclude(rowId, day, period, exclude)) return;
+      if (slot?.columnId === columnId) count += 1;
+    });
+  });
+  return count;
+}
+
+export function columnOnDay(project, rowId, day, columnId, exclude = null) {
+  const periods = project.schedule?.slots?.[rowId]?.[day] || {};
+  return Object.entries(periods).some(([period, slot]) => {
+    if (slotMatchesExclude(rowId, day, period, exclude)) return false;
+    return slot?.columnId === columnId;
+  });
+}
+
+export function columnLoadIssue(project, rowId, day, assignment, exclude = null) {
+  if (!assignment || assignment.kind === "support") return null;
+  const column = (project.columns || []).find((item) => item.id === assignment.columnId);
+  if (!column || !isLoadColumn(column)) return null;
+  const row = (project.rows || []).find((item) => item.id === rowId);
+  const section = row ? sectionLabel(row) : rowId;
+  const title = assignment.title || column.title;
+  if (!column.allowSameDayRepeat && columnOnDay(project, rowId, day, column.id, exclude)) {
+    return `${title} is already on ${day} for ${section}. Turn on “May repeat on the same day” in Plan the week if that is intended.`;
+  }
+  const quota = parsePeriodsPerWeek(column.periodsPerWeek);
+  if (quota == null) return null;
+  const nextCount = countColumnPeriods(project, rowId, column.id, exclude) + 1;
+  if (nextCount > quota) {
+    return `${title} would be ${nextCount} periods this week; the plan allows ${quota}.`;
+  }
+  return null;
 }
 
 export function isStaffBusy(project, staff, day, period) {

@@ -77,6 +77,9 @@ export function normalizeProject(project) {
   }
   project.columns.forEach((column) => {
     column.width = clampColumnWidth(column.width ?? defaultColumnWidth(column.kind));
+    if (isLoadColumn(column) && column.allowSameDayRepeat == null) {
+      column.allowSameDayRepeat = false;
+    }
   });
   if (!Array.isArray(project.rows)) project.rows = [createDefaultRow()];
   project.rows.forEach((row) => {
@@ -105,6 +108,29 @@ export function columnHeader(column) {
 
 export function isMappingColumn(column) {
   return ["subject", "lab", "support"].includes(column.kind);
+}
+
+export function isLoadColumn(column) {
+  return column?.kind === "subject" || column?.kind === "lab";
+}
+
+export function parsePeriodsPerWeek(value) {
+  if (value === "" || value == null) return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) return null;
+  return Math.min(12, n);
+}
+
+export function loadColumnLabel(column) {
+  if (!column) return "Subject";
+  if (column.kind === "lab") return `${column.title} Lab`;
+  return column.title || "Subject";
+}
+
+export function unsetLoadColumns(project) {
+  return (project.columns || []).filter(
+    (column) => isLoadColumn(column) && parsePeriodsPerWeek(column.periodsPerWeek) == null,
+  );
 }
 
 export function findInsertIndexAfter(columns, columnId) {
@@ -142,6 +168,8 @@ export function addSubjectColumn(project, afterColumnId, subjectTitle) {
     subjectKey,
     baseKind: "subject",
     width: COLUMN_WIDTH.subject,
+    periodsPerWeek: 5,
+    allowSameDayRepeat: false,
   };
   const at = findInsertIndexAfter(project.columns, afterColumnId || "col-section-name");
   project.columns.splice(at, 0, column);
@@ -167,6 +195,8 @@ export function addLabColumn(project, afterColumnId, labTitle, options = {}) {
     subjectKey,
     baseKind: "lab",
     width: COLUMN_WIDTH.lab,
+    periodsPerWeek: 2,
+    allowSameDayRepeat: false,
   };
   const at = findInsertIndexAfter(project.columns, afterColumnId || linkTo?.id || "col-section-name");
   project.columns.splice(at, 0, column);
@@ -384,6 +414,8 @@ export function fillTestMappingData(project) {
       subjectKey,
       baseKind: "subject",
       width: COLUMN_WIDTH.subject,
+      periodsPerWeek: 5,
+      allowSameDayRepeat: false,
     };
     subjectByTitle[def.title] = {
       column,
@@ -402,6 +434,8 @@ export function fillTestMappingData(project) {
       subjectKey,
       baseKind: "lab",
       width: COLUMN_WIDTH.lab,
+      periodsPerWeek: 2,
+      allowSameDayRepeat: false,
     };
     const support = {
       id: uid("col"),
