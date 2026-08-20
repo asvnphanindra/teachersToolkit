@@ -265,6 +265,434 @@
   gap: var(--ct-space-2);
 }
 
+/* ── Unified app chrome ── */
+
+.toolkit-nav {
+  display: none;
+}
+
+.map-app-chrome {
+  position: relative;
+  z-index: 21;
+  display: grid;
+  gap: var(--ct-space-2);
+  padding: var(--ct-space-3);
+  background: var(--ct-chrome);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-lg);
+  flex-shrink: 0;
+}
+
+.map-chrome-top {
+  display: flex;
+  align-items: center;
+}
+
+.map-chrome-back {
+  color: var(--ct-text-secondary);
+  font-size: var(--ct-fs-caption);
+  font-weight: var(--ct-fw-semibold);
+  text-decoration: none;
+  transition: color var(--ct-duration-fast) var(--ct-ease);
+}
+
+.map-chrome-back:hover {
+  color: var(--ct-accent);
+}
+
+.map-chrome-main {
+  display: grid;
+  gap: var(--ct-space-2);
+}
+
+.map-doc-title {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--ct-font-display);
+  font-size: clamp(1.25rem, 2.5vw, 1.65rem);
+  font-weight: var(--ct-fw-semibold);
+  letter-spacing: -0.03em;
+  line-height: var(--ct-lh-tight);
+  color: var(--ct-text);
+}
+
+.map-doc-title:hover,
+.map-doc-title:focus {
+  outline: none;
+}
+
+.map-doc-title:focus {
+  box-shadow: inset 0 -2px 0 var(--ct-accent);
+}
+
+.map-doc-title::placeholder {
+  color: var(--ct-text-secondary);
+  opacity: 0.7;
+}
+
+.map-menu-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ct-space-1);
+  margin-top: var(--ct-space-1);
+  padding: 3px var(--ct-space-2);
+  min-height: 32px;
+  background: rgba(246, 246, 246, 0.92);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-md);
+}
+
+.map-menu-wrap {
+  position: relative;
+}
+
+.map-menu-wrap.is-open {
+  z-index: 30;
+}
+
+.map-menu-trigger {
+  padding: var(--ct-space-1) var(--ct-space-2);
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ct-text);
+  font: inherit;
+  font-size: var(--ct-fs-label);
+  font-weight: var(--ct-fw-medium);
+  cursor: pointer;
+  transition: background var(--ct-duration-fast) var(--ct-ease);
+}
+
+.map-menu-trigger:hover,
+.map-menu-wrap.is-open .map-menu-trigger {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.map-menu-panel {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 31;
+  min-width: 210px;
+  padding: var(--ct-space-1);
+  background: var(--ct-surface);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-md);
+  box-shadow: var(--ct-shadow-md);
+}
+
+.map-menu-wrap.is-open .map-menu-panel {
+  display: grid;
+  gap: 2px;
+}
+
+.map-menu-panel button {
+  width: 100%;
+  padding: var(--ct-space-2) var(--ct-space-3);
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ct-text);
+  font: inherit;
+  font-size: var(--ct-fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.map-menu-panel button:hover,
+.map-menu-panel button:focus-visible {
+  background: var(--ct-accent);
+  color: #fbfbfd;
+  outline: none;
+}
+
+.map-chrome-autosave {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ct-space-1);
+  color: var(--ct-text-secondary);
+  font-size: var(--ct-fs-caption);
+  white-space: nowrap;
+}
+
+.map-app-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: transparent;
+}
+
+/* Chevron process — Plan / Schedule / Export */
+.map-stage-nav--chevron {
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  display: block;
+}
+
+.map-stage-nav--chevron .map-stage-track {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  gap: 0;
+  min-height: 32px;
+}
+
+.map-stage-nav--chevron .map-stage-segment {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 32px;
+  margin-left: -10px;
+  padding: 0 18px 0 22px;
+  border: none;
+  border-radius: 0;
+  background: var(--ct-surface-muted);
+  color: var(--ct-text);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%);
+  transition:
+    background var(--ct-duration-fast) var(--ct-ease),
+    color var(--ct-duration-fast) var(--ct-ease);
+}
+
+.map-stage-nav--chevron .map-stage-track > .map-stage-segment:first-child {
+  margin-left: 0;
+  padding-left: 14px;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
+  border-radius: 6px 0 0 6px;
+}
+
+.map-stage-nav--chevron .map-stage-track > .map-stage-segment:last-child {
+  padding-right: 14px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 12px 50%);
+  border-radius: 0 6px 6px 0;
+}
+
+.map-stage-nav--chevron .map-stage-segment.is-current {
+  background: var(--ct-accent-soft);
+  box-shadow: none;
+  z-index: 1;
+}
+
+.map-stage-nav--chevron .map-stage-segment.is-locked {
+  opacity: 0.45;
+}
+
+.map-stage-nav--chevron .map-stage-segment.is-locked .map-stage-step {
+  cursor: not-allowed;
+}
+
+.map-stage-nav--chevron .map-stage-segment.is-complete:not(.is-current) .map-stage-num {
+  background: var(--ct-success-bg);
+  color: var(--ct-success);
+}
+
+.map-stage-nav--chevron .map-stage-segment.is-complete:not(.is-current) .map-stage-label {
+  color: var(--ct-text-secondary);
+}
+
+.map-stage-nav--chevron .map-stage-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: center;
+  cursor: pointer;
+  font: inherit;
+}
+
+.map-stage-nav--chevron .map-stage-step:hover {
+  background: transparent;
+}
+
+.map-stage-nav--chevron .map-stage-segment:not(.is-locked):not(.is-current):hover {
+  background: var(--ct-surface-hover);
+}
+
+.map-stage-nav--chevron .map-stage-segment.is-current .map-stage-num {
+  background: var(--ct-accent);
+  color: #fbfbfd;
+}
+
+.map-stage-nav--chevron .map-stage-num {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+
+.map-stage-nav--chevron .map-stage-label {
+  font-size: var(--ct-fs-label);
+  font-weight: var(--ct-fw-semibold);
+}
+
+.map-stage-info {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--ct-text-secondary);
+  line-height: 0;
+  cursor: help;
+  position: relative;
+  outline: none;
+}
+
+.map-stage-info-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.map-stage-info:hover,
+.map-stage-info:focus-visible {
+  color: var(--ct-accent);
+}
+
+.map-stage-info::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 240px;
+  padding: var(--ct-space-2);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-text);
+  color: #fbfbfd;
+  font-size: var(--ct-fs-caption);
+  font-weight: var(--ct-fw-regular);
+  line-height: var(--ct-lh-tight);
+  white-space: normal;
+  text-align: left;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ct-duration-fast) var(--ct-ease);
+  z-index: 30;
+}
+
+.map-stage-info:hover::after,
+.map-stage-info:focus-visible::after {
+  opacity: 1;
+}
+
+.map-fab-zone {
+  position: fixed;
+  right: var(--ct-space-4);
+  bottom: var(--ct-space-4);
+  z-index: 12;
+  padding: var(--ct-space-2);
+}
+
+.map-fab-zone--back {
+  left: var(--ct-space-4);
+  right: auto;
+}
+
+.map-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ct-space-2);
+  min-height: 44px;
+  padding: 0 var(--ct-space-3);
+  border: 1px solid var(--ct-accent);
+  border-radius: 999px;
+  background: var(--ct-accent);
+  color: #fbfbfd;
+  font: inherit;
+  font-size: var(--ct-fs-label);
+  font-weight: var(--ct-fw-semibold);
+  box-shadow: var(--ct-shadow-sm);
+  cursor: pointer;
+  opacity: 1;
+  transform: scale(0.98);
+  transition:
+    opacity var(--ct-duration-fast) var(--ct-ease),
+    transform var(--ct-duration-fast) var(--ct-ease),
+    box-shadow var(--ct-duration-fast) var(--ct-ease),
+    background var(--ct-duration-fast) var(--ct-ease),
+    border-color var(--ct-duration-fast) var(--ct-ease);
+}
+
+.map-fab-zone:hover .map-fab,
+.map-fab:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+  background: #0077ed;
+  border-color: #0077ed;
+  color: #fbfbfd;
+  box-shadow: var(--ct-shadow-md);
+}
+
+.map-fab-arrow {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.map-projects-page {
+  display: grid;
+  gap: var(--ct-space-3);
+  padding: var(--ct-space-4);
+  background: var(--ct-surface);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-lg);
+}
+
+.map-projects-head h2 {
+  margin: 0 0 var(--ct-space-1);
+  font-family: var(--ct-font-display);
+  font-size: var(--ct-fs-title);
+  font-weight: var(--ct-fw-semibold);
+  letter-spacing: -0.02em;
+}
+
+.map-projects-note {
+  margin: 0;
+  color: var(--ct-text-secondary);
+  font-size: var(--ct-fs-label);
+}
+
+.map-projects-page .map-saved-list {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.map-projects-page .map-saved-item {
+  width: 100%;
+  max-width: none;
+}
+
 .map-file-menu-wrap {
   position: relative;
 }
@@ -428,6 +856,47 @@
   width: 24px;
   height: 1px;
   background: var(--ct-border-strong);
+}
+
+/* Chevron stepper overrides legacy card grid when used in app chrome */
+.map-stage-nav.map-stage-nav--chevron {
+  display: block;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.map-stage-nav.map-stage-nav--chevron .map-stage-step:hover {
+  background: transparent;
+}
+
+.map-stage-nav.map-stage-nav--chevron .map-stage-step.is-current,
+.map-stage-nav.map-stage-nav--chevron .map-stage-step.is-locked,
+.map-stage-nav.map-stage-nav--chevron .map-stage-step.is-complete {
+  background: transparent;
+  border-color: transparent;
+  opacity: 1;
+}
+
+.map-stage-nav.map-stage-nav--chevron .map-stage-segment.is-current .map-stage-num {
+  background: var(--ct-accent);
+  color: #fbfbfd;
+}
+
+.map-stage-nav.map-stage-nav--chevron .map-stage-segment.is-complete:not(.is-current) .map-stage-num {
+  background: var(--ct-success-bg);
+  color: var(--ct-success);
+}
+
+.map-stage-nav.map-stage-nav--chevron .map-stage-segment.is-locked {
+  opacity: 0.45;
+}
+
+.map-stage-nav.map-stage-nav--chevron .map-stage-segment.is-locked .map-stage-step {
+  cursor: not-allowed;
 }
 
 .map-intro {
@@ -2655,12 +3124,18 @@ body.is-resizing-timeline .schedule-timeline-label-input {
     width: 100%;
   }
 
-  .map-stage-nav {
-    grid-template-columns: 1fr;
+  .map-stage-nav--chevron .map-stage-label {
+    font-size: var(--ct-fs-caption);
   }
 
-  .map-stage-connector {
-    display: none;
+  .map-stage-nav--chevron .map-stage-num {
+    width: 18px;
+    height: 18px;
+    font-size: 10px;
+  }
+
+  .map-stage-nav {
+    grid-template-columns: 1fr;
   }
 
   .map-stage-hint {
@@ -2705,5 +3180,33 @@ body.is-resizing-timeline .schedule-timeline-label-input {
   .schedule-day-check {
     flex: 1 1 auto;
     justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .map-stage-nav--chevron .map-stage-track {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .map-stage-nav--chevron .map-stage-segment {
+    margin-left: 0;
+    margin-top: -8px;
+    padding: 10px 12px 16px;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), 50% 100%, 0 calc(100% - 10px));
+    border-radius: 0;
+  }
+
+  .map-stage-nav--chevron .map-stage-track > .map-stage-segment:first-child {
+    margin-top: 0;
+    padding-top: 8px;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), 50% 100%, 0 calc(100% - 10px));
+    border-radius: 6px 6px 0 0;
+  }
+
+  .map-stage-nav--chevron .map-stage-track > .map-stage-segment:last-child {
+    padding-bottom: 10px;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    border-radius: 0 0 6px 6px;
   }
 }

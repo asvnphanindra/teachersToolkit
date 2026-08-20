@@ -27,6 +27,7 @@ export const VIEW_TO_STAGE = {
   mapping: "plan",
   summary: "plan",
   timingSetup: "plan",
+  projects: "plan",
   schedule: "schedule",
   export: "export",
 };
