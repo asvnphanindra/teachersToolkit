@@ -5,6 +5,7 @@ import {
   addSupportColumn,
   clampColumnWidth,
   columnHeader,
+  columnDisplayTitle,
   createProject,
   deleteColumn,
   deleteRow,
@@ -33,7 +34,12 @@ import {
   exportMappingPdf,
   exportSectionTimetablesPdf,
 } from "./pdf-export.js";
-import { facultySummaryTables } from "./summary.js";
+import {
+  facultySummaryRows,
+  filterFacultySummaryRows,
+  sortFacultySummaryRows,
+  summarySearchSuggestions,
+} from "./summary.js";
 import {
   WEEK_DAYS,
   TIMELINE,
@@ -69,7 +75,6 @@ import {
 } from "./schedule.js";
 import {
   STAGES,
-  hasSeenIntro,
   markIntroSeen,
   stageById,
   stageState,
@@ -77,7 +82,7 @@ import {
 
 const app = document.querySelector("#app");
 let project = ensureActiveProject();
-let view = hasSeenIntro() ? "mapping" : "intro";
+let view = "start";
 let scheduleRowId = project.rows[0]?.id || null;
 let scheduleDay = "Monday";
 let scheduleViewMode = "all"; // one | some | all
@@ -89,12 +94,22 @@ let exportSectionId = "all";
 let exportStaffName = "all";
 let subjectChoice = null; // { rowId, day, period, staff, options }
 let timelineDrag = null; // { index, edge }
-let menu = null; // { columnId, x, y }
+let menu = null; // { columnId, x, y, mode?: "actions" | "add", submenu?: "add" | null }
 let selected = null; // { rowId, columnId }
 let fillDrag = null;
 let rowDrag = null;
 let colResize = null; // { columnId, startX, startWidth }
 let armedDragRow = null;
+let renameColumnId = null;
+let summaryUi = {
+  draftQuery: "",
+  appliedQuery: "",
+  typeFilter: "all",
+  sortKey: "section",
+  sortDir: "asc",
+  suggestOpen: false,
+  suggestIndex: -1,
+};
 
 const esc = (value = "") => String(value).replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
@@ -120,6 +135,7 @@ const ICON = {
   plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 2.5a.75.75 0 0 1 .75.75v4h4a.75.75 0 0 1 0 1.5h-4v4a.75.75 0 0 1-1.5 0v-4h-4a.75.75 0 0 1 0-1.5h4v-4A.75.75 0 0 1 8 2.5Z"/></svg>',
   close: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06Z"/></svg>',
   grip: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5.5 3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm7-9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
+  chevron: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4 4a.75.75 0 0 1 0 1.06l-4 4a.75.75 0 1 1-1.06-1.06L9.69 8 6.22 4.53a.75.75 0 0 1 0-1.06Z"/></svg>',
 };
 
 function askName(label, defaultValue = "") {
@@ -139,7 +155,7 @@ function statusChip() {
   const issues = mappingIssues(project);
   return issues.length
     ? `<span class="map-status warn" role="status">${issues.length} to fix</span>`
-    : `<span class="map-status ok" role="status">Ready</span>`;
+    : `<span class="map-status ok" role="status">Ready to schedule</span>`;
 }
 
 function renderStageNav(currentView) {
@@ -205,7 +221,10 @@ function renderAppChrome(currentView) {
       <a href="../index.html" class="map-chrome-back">← Teacher's Toolkit</a>
     </div>
     <div class="map-chrome-main">
-      <input class="map-doc-title" id="project-name" value="${esc(project.name)}" maxlength="80" aria-label="Project name" placeholder="Untitled timetable">
+      <label class="map-doc-title-wrap">
+        <span class="map-doc-title-hint">Click to rename</span>
+        <input class="map-doc-title" id="project-name" value="${esc(project.name)}" maxlength="80" aria-label="Project name" placeholder="Untitled timetable">
+      </label>
       ${renderStageNav(currentView)}
     </div>
     ${renderMenuBar(currentView)}
@@ -220,6 +239,7 @@ function nextStepForView(currentView) {
 }
 
 function prevStepForView(currentView) {
+  if (currentView === "summary") return { label: "Section mapping", action: "back-to-mapping" };
   if (currentView === "timingSetup") return { label: "Section mapping", action: "back-to-mapping" };
   if (currentView === "schedule") return { label: "Edit week plan", action: "edit-timings" };
   if (currentView === "export") return { label: "Schedule", action: "back-to-schedule" };
@@ -315,6 +335,7 @@ function bindAppChrome() {
       }
     };
   }
+  bindStageInfoTips();
   app.querySelectorAll("[data-app-menu]").forEach((trigger) => {
     trigger.onclick = (event) => {
       event.stopPropagation();
@@ -339,6 +360,49 @@ function bindAppChrome() {
     };
     document.body.append(backdrop);
   }
+}
+
+function ensureStageTipEl() {
+  let tip = document.getElementById("map-stage-tip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "map-stage-tip";
+    tip.className = "map-stage-tip";
+    tip.hidden = true;
+    tip.setAttribute("role", "tooltip");
+    document.body.append(tip);
+  }
+  return tip;
+}
+
+function hideStageTip() {
+  const tip = document.getElementById("map-stage-tip");
+  if (tip) tip.hidden = true;
+}
+
+function showStageTip(anchor) {
+  const text = anchor.getAttribute("data-tip");
+  if (!text) return;
+  const tip = ensureStageTipEl();
+  tip.textContent = text;
+  tip.hidden = false;
+  const rect = anchor.getBoundingClientRect();
+  const tipRect = tip.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - tipRect.width / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+  let top = rect.top - tipRect.height - 8;
+  if (top < 8) top = rect.bottom + 8;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+function bindStageInfoTips() {
+  app.querySelectorAll(".map-stage-info").forEach((el) => {
+    el.onmouseenter = () => showStageTip(el);
+    el.onmouseleave = hideStageTip;
+    el.onfocus = () => showStageTip(el);
+    el.onblur = hideStageTip;
+  });
 }
 
 function openScheduleFromSetup() {
@@ -523,6 +587,11 @@ function refreshMappingSuggestions() {
 }
 
 function render() {
+  hideStageTip();
+  if (view === "start") {
+    renderStart();
+    return;
+  }
   if (view === "intro") {
     renderIntro();
     return;
@@ -585,21 +654,18 @@ function render() {
                       const stickyStyle = left == null ? "" : `left:${left}px;`;
                       const groupInfo = groups[column.id];
                       const groupClasses = groupClassNames(column, groups);
+                      const displayTitle = columnDisplayTitle(column);
+                      const canMenu = isMappingColumn(column) || column.kind === "sectionName";
+                      const canRename = isMappingColumn(column);
+                      const canDelete = isMappingColumn(column);
+                      const editing = renameColumnId === column.id;
                       return `
                       <th data-col="${column.id}" scope="col" class="${stickyClassForColumn(column)} ${groupClasses}" style="width:${column.width || 140}px;${stickyStyle}" ${groupInfo ? `data-group="${esc(groupInfo.groupKey)}"` : ""}>
                         <div class="map-th">
-                          <div class="map-th-main">
-                            ${groupInfo ? `<span class="map-group-chip">${esc(groupInfo.title)} · ${esc(roleLabel(column))}</span>` : ""}
-                            <span class="map-th-title" ${isMappingColumn(column) ? `contenteditable="true" data-rename="${column.id}" role="textbox" aria-label="Rename ${esc(columnHeader(column))}" title="Click to rename"` : ""}>${esc(columnHeader(column))}</span>
-                          </div>
-                          <div class="map-th-actions">
-                            ${isMappingColumn(column) || column.kind === "sectionName" ? `
-                              <button type="button" class="map-icon-btn" data-add-col="${column.id}" title="Add column" aria-label="Add column after ${esc(columnHeader(column))}">${ICON.plus}</button>
-                            ` : ""}
-                            ${isMappingColumn(column) ? `
-                              <button type="button" class="map-icon-btn danger" data-del-col="${column.id}" title="Delete column" aria-label="Delete ${esc(columnHeader(column))}">${ICON.close}</button>
-                            ` : ""}
-                          </div>
+                          <span class="map-th-title ${editing ? "is-editing" : ""}" ${canRename ? `contenteditable="${editing ? "true" : "false"}" data-rename="${column.id}" role="textbox" aria-label="Rename ${esc(columnHeader(column))}"` : ""}>${esc(displayTitle)}</span>
+                          ${canMenu ? `
+                            <button type="button" class="map-th-menu-trigger" data-col-menu="${column.id}" aria-haspopup="menu" aria-label="Column actions for ${esc(displayTitle)}" title="Column actions">${ICON.chevron}</button>
+                          ` : ""}
                         </div>
                         <button type="button" class="map-col-resize" data-resize-col="${column.id}" title="Drag to resize" aria-label="Resize ${esc(columnHeader(column))} column"></button>
                       </th>`;
@@ -618,7 +684,7 @@ function render() {
                       ${project.columns.map((column) => {
                         const focused = selected?.rowId === row.id && selected?.columnId === column.id;
                         const left = stickyLeftForColumn(column, layout);
-                        const sticky = left == null ? "" : `map-sticky-col ${column.kind === "sectionName" ? "map-sticky-col--edge" : column.kind === "sectionId" ? "map-sticky-col--id" : ""}`;
+                        const sticky = left == null ? "" : `map-sticky-col ${column.kind === "sectionName" ? "map-sticky-col--name map-sticky-col--edge" : column.kind === "sectionId" ? "map-sticky-col--id" : ""}`;
                         const stickyStyle = left == null ? "" : `left:${left}px;`;
                         const groupClasses = groupClassNames(column, groups);
                         return `<td class="map-cell ${sticky} ${groupClasses} ${focused ? "is-selected" : ""}" data-row="${row.id}" data-col="${column.id}" style="${stickyStyle}">
@@ -661,80 +727,270 @@ function render() {
   bind();
 }
 
-function renderSectionCount(assignments) {
-  if (!assignments.length) return "—";
-  const sections = assignments.map((section) => `${section.sectionId} · ${section.sectionName}`).join("\n");
-  return `<span class="map-summary-count" tabindex="0" title="${esc(sections)}" aria-label="Assigned sections: ${esc(sections)}">${assignments.length}</span>`;
+function visibleSummaryRows() {
+  const all = facultySummaryRows(project);
+  return sortFacultySummaryRows(
+    filterFacultySummaryRows(all, {
+      query: summaryUi.appliedQuery,
+      typeFilter: summaryUi.typeFilter,
+    }),
+    summaryUi.sortKey,
+    summaryUi.sortDir,
+  );
 }
 
-function renderSummaryRows(rows, label, groupClass, table, startAt = 0) {
-  if (!rows.length) return "";
-  const columnCount = table.hasLab ? 4 : 3;
+function summaryTypeScopedRows() {
+  return filterFacultySummaryRows(facultySummaryRows(project), {
+    query: "",
+    typeFilter: summaryUi.typeFilter,
+  });
+}
+
+function summarySuggestionsList() {
+  if (!summaryUi.suggestOpen) return [];
+  return summarySearchSuggestions(summaryTypeScopedRows(), summaryUi.draftQuery);
+}
+
+function renderSummarySuggestList(suggestions) {
+  if (!suggestions.length) return "";
   return `
-    <tr class="map-summary-role ${groupClass}">
-      <th colspan="${columnCount}" scope="rowgroup">${label}</th>
-    </tr>
-    ${rows.map((row, index) => `
-      <tr>
-        <td>${startAt + index + 1}</td>
-        <td>${esc(row.staff)}</td>
-        <td>${renderSectionCount(table.type === "lab" ? row.labAssignments : row.subjectAssignments)}</td>
-        ${table.hasLab ? `<td>${renderSectionCount(row.labAssignments)}</td>` : ""}
-      </tr>
-    `).join("")}
+    <ul class="map-summary-suggest" id="summary-suggest" role="listbox">
+      ${suggestions.map((item, index) => `
+        <li role="presentation">
+          <button type="button" role="option" class="map-summary-suggest-item ${index === summaryUi.suggestIndex ? "is-active" : ""}" data-summary-suggest="${esc(item.value)}" aria-selected="${index === summaryUi.suggestIndex ? "true" : "false"}">
+            <span>${esc(item.value)}</span>
+            <span class="map-summary-suggest-kind">${esc(item.kind)}</span>
+          </button>
+        </li>
+      `).join("")}
+    </ul>
   `;
 }
 
+function syncSummarySuggestDom() {
+  const wrap = app.querySelector(".map-summary-search");
+  const search = app.querySelector("#summary-search");
+  if (!wrap || !search) return;
+  wrap.querySelector("#summary-suggest")?.remove();
+  const suggestions = summarySuggestionsList();
+  search.setAttribute("aria-expanded", suggestions.length ? "true" : "false");
+  if (!suggestions.length) return;
+  wrap.insertAdjacentHTML("beforeend", renderSummarySuggestList(suggestions));
+  wrap.querySelectorAll("[data-summary-suggest]").forEach((button) => {
+    button.onmousedown = (event) => event.preventDefault();
+    button.onclick = () => applySummarySuggestion(button.dataset.summarySuggest);
+  });
+}
+
+function applySummarySuggestion(value) {
+  summaryUi = {
+    ...summaryUi,
+    draftQuery: value,
+    appliedQuery: value,
+    suggestOpen: false,
+    suggestIndex: -1,
+  };
+  renderSummary();
+  app.querySelector("#summary-search")?.focus();
+}
+
+function summarySortIndicator(key) {
+  if (summaryUi.sortKey !== key) return "";
+  return summaryUi.sortDir === "asc" ? " ↑" : " ↓";
+}
+
 function renderSummary() {
-  const tables = facultySummaryTables(project);
+  const allRows = facultySummaryRows(project);
+  const rows = visibleSummaryRows();
+  const suggestions = summarySuggestionsList();
+  const columns = [
+    { key: "section", label: "Section" },
+    { key: "subject", label: "Subject" },
+    { key: "faculty", label: "Faculty name" },
+    { key: "type", label: "Type" },
+    { key: "facultyCount", label: "Faculty cumulative number" },
+  ];
+
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
         ${renderAppChrome("summary")}
 
-        <main class="map-summary" aria-label="Faculty statistics by subject">
+        <main class="map-summary" aria-label="Faculty summary">
           <div class="map-summary-intro">
             <div>
-              <h2>Faculty workload by subject</h2>
-              <p>Each total is the number of distinct sections assigned to that staff member. Teaching and supporting staff are shown separately.</p>
+              <h2>Faculty summary</h2>
+              <p>One row per section–subject staff assignment. Cumulative number is how many assignments that faculty has in total.</p>
             </div>
-            <span>${project.rows.length} section${project.rows.length === 1 ? "" : "s"}</span>
+            <span>${allRows.length} assignment${allRows.length === 1 ? "" : "s"}</span>
           </div>
-          ${tables.length ? `
-            <div class="map-summary-grid">
-              ${tables.map((table, tableIndex) => `
-                <section class="map-summary-card" aria-labelledby="summary-table-${tableIndex}">
-                  <h3 id="summary-table-${tableIndex}">${esc(table.title)}</h3>
-                  ${table.staffRows.length || table.supportRows.length ? `
-                    <div class="map-summary-table-wrap">
-                      <table class="map-summary-table">
-                        <thead>
-                          <tr>
-                            <th scope="col">S. No.</th>
-                            <th scope="col">Staff member</th>
-                            <th scope="col">Sections</th>
-                            ${table.hasLab ? `<th scope="col">Lab sections</th>` : ""}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          ${renderSummaryRows(table.staffRows, "Teaching staff", "map-summary-role--teaching", table)}
-                          ${renderSummaryRows(table.supportRows, "Supporting staff", "map-summary-role--support", table, table.staffRows.length)}
-                        </tbody>
-                      </table>
-                    </div>
-                  ` : `<p class="map-summary-empty">No staff assignments yet.</p>`}
-                </section>
-              `).join("")}
+
+          ${allRows.length ? `
+            <div class="map-summary-toolbar">
+              <div class="map-summary-search">
+                <label for="summary-search">
+                  <span class="visually-hidden">Search faculty, subject, or section</span>
+                </label>
+                <input type="search" id="summary-search" value="${esc(summaryUi.draftQuery)}" placeholder="Search faculty, subject, or section" autocomplete="off" aria-autocomplete="list" aria-controls="summary-suggest" aria-expanded="${suggestions.length ? "true" : "false"}">
+                ${renderSummarySuggestList(suggestions)}
+              </div>
+              <label class="map-summary-filter">
+                <span class="visually-hidden">Filter by type</span>
+                <select id="summary-type-filter" aria-label="Filter by type">
+                  <option value="all" ${summaryUi.typeFilter === "all" ? "selected" : ""}>All types</option>
+                  <option value="main" ${summaryUi.typeFilter === "main" ? "selected" : ""}>Main faculty</option>
+                  <option value="support" ${summaryUi.typeFilter === "support" ? "selected" : ""}>Supporting</option>
+                </select>
+              </label>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="export-summary-pdf">Print</button>
             </div>
-          ` : `<section class="map-summary-empty-state"><h2>No subjects or labs yet</h2><p>Add a subject or lab in the mapping grid to view its faculty statistics.</p><button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button></section>`}
+
+            <section class="map-summary-card map-summary-card--flat">
+              ${rows.length ? `
+                <div class="map-summary-table-wrap">
+                  <table class="map-summary-table map-summary-table--flat">
+                    <thead>
+                      <tr>
+                        ${columns.map((column) => `
+                          <th scope="col">
+                            <button type="button" class="map-summary-sort ${summaryUi.sortKey === column.key ? "is-active" : ""}" data-summary-sort="${column.key}" aria-label="Sort by ${esc(column.label)}">
+                              ${esc(column.label)}${summarySortIndicator(column.key)}
+                            </button>
+                          </th>
+                        `).join("")}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${rows.map((row) => `
+                        <tr>
+                          <td><span class="map-summary-cell">${esc(row.section)}</span></td>
+                          <td><span class="map-summary-cell">${esc(row.subject)}</span></td>
+                          <td><span class="map-summary-cell">${esc(row.faculty)}</span></td>
+                          <td><span class="map-summary-cell"><span class="map-summary-type map-summary-type--${row.typeKey}">${esc(row.type)}</span></span></td>
+                          <td><span class="map-summary-cell map-summary-count-cell">${row.facultyCount}</span></td>
+                        </tr>
+                      `).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              ` : `<p class="map-summary-empty">No rows match this search or filter.</p>`}
+            </section>
+          ` : `<section class="map-summary-empty-state"><h2>No staff assignments yet</h2><p>Add subjects or labs and fill staff names in the mapping grid to build this summary.</p><button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button></section>`}
         </main>
         ${renderFooter("summary")}
       </div>
     </div>
+
+    ${renderBackFab("summary")}
   `;
   bindChrome();
   app.querySelectorAll("[data-action]").forEach((button) => {
     button.onclick = () => runAction(button.dataset.action);
+  });
+
+  const search = app.querySelector("#summary-search");
+  if (search) {
+    search.addEventListener("input", () => {
+      const value = search.value;
+      const cleared = !value.trim();
+      const hadFilter = Boolean(summaryUi.appliedQuery);
+      summaryUi = {
+        ...summaryUi,
+        draftQuery: value,
+        appliedQuery: cleared ? "" : summaryUi.appliedQuery,
+        suggestOpen: !cleared,
+        suggestIndex: -1,
+      };
+      if (cleared) {
+        if (hadFilter) {
+          renderSummary();
+          app.querySelector("#summary-search")?.focus();
+        } else {
+          syncSummarySuggestDom();
+        }
+        return;
+      }
+      syncSummarySuggestDom();
+    });
+
+    search.addEventListener("keydown", (event) => {
+      const list = summarySuggestionsList();
+      if (event.key === "ArrowDown" && list.length) {
+        event.preventDefault();
+        summaryUi = {
+          ...summaryUi,
+          suggestOpen: true,
+          suggestIndex: Math.min(list.length - 1, summaryUi.suggestIndex + 1),
+        };
+        syncSummarySuggestDom();
+        return;
+      }
+      if (event.key === "ArrowUp" && list.length) {
+        event.preventDefault();
+        summaryUi = {
+          ...summaryUi,
+          suggestOpen: true,
+          suggestIndex: Math.max(0, summaryUi.suggestIndex <= 0 ? 0 : summaryUi.suggestIndex - 1),
+        };
+        syncSummarySuggestDom();
+        return;
+      }
+      if (event.key === "Enter") {
+        if (summaryUi.suggestOpen && summaryUi.suggestIndex >= 0 && list[summaryUi.suggestIndex]) {
+          event.preventDefault();
+          applySummarySuggestion(list[summaryUi.suggestIndex].value);
+        } else {
+          // Do not apply free-typed text — only chosen suggestions filter the table
+          event.preventDefault();
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        summaryUi = { ...summaryUi, suggestOpen: false, suggestIndex: -1 };
+        syncSummarySuggestDom();
+      }
+    });
+
+    search.addEventListener("blur", () => {
+      setTimeout(() => {
+        if (!summaryUi.suggestOpen) return;
+        summaryUi = { ...summaryUi, suggestOpen: false, suggestIndex: -1 };
+        syncSummarySuggestDom();
+      }, 150);
+    });
+  }
+
+  app.querySelectorAll("[data-summary-suggest]").forEach((button) => {
+    button.onmousedown = (event) => event.preventDefault();
+    button.onclick = () => applySummarySuggestion(button.dataset.summarySuggest);
+  });
+
+  const typeFilter = app.querySelector("#summary-type-filter");
+  if (typeFilter) {
+    typeFilter.onchange = () => {
+      summaryUi = {
+        ...summaryUi,
+        typeFilter: typeFilter.value,
+        suggestOpen: false,
+        suggestIndex: -1,
+      };
+      renderSummary();
+    };
+  }
+
+  app.querySelectorAll("[data-summary-sort]").forEach((button) => {
+    button.onclick = () => {
+      const key = button.dataset.summarySort;
+      if (summaryUi.sortKey === key) {
+        summaryUi = {
+          ...summaryUi,
+          sortDir: summaryUi.sortDir === "asc" ? "desc" : "asc",
+        };
+      } else {
+        summaryUi = { ...summaryUi, sortKey: key, sortDir: "asc" };
+      }
+      renderSummary();
+    };
   });
 }
 
@@ -1567,6 +1823,27 @@ function dismissIntro() {
   render();
 }
 
+function renderStart() {
+  app.innerHTML = `
+    <div class="map-page">
+      <div class="map-shell">
+        <section class="map-intro map-start" aria-labelledby="start-heading">
+          <p class="map-intro-eyebrow">Class Timetable</p>
+          <h1 id="start-heading">Plan your week</h1>
+          <p class="map-intro-lead">Create a new timetable or open one saved in this browser.</p>
+          <div class="map-intro-actions">
+            <button type="button" class="btn btn--primary" data-action="create-new-timetable">Create new timetable</button>
+            <button type="button" class="btn btn--secondary" data-action="open-projects">Open saved timetable</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+  app.querySelectorAll("[data-action]").forEach((button) => {
+    button.onclick = () => runAction(button.dataset.action);
+  });
+}
+
 function renderIntro() {
   app.innerHTML = `
     <div class="map-page">
@@ -1631,7 +1908,7 @@ function renderExport() {
   const stats = state.stats;
   const faculty = facultyTimetables(project);
   const mappingReady = project.rows.length > 0;
-  const summaryReady = facultySummaryTables(project).length > 0;
+  const summaryReady = facultySummaryRows(project).length > 0;
   const hasSlots = stats.placedPeriods > 0;
   const selectedFaculty = faculty.find((entry) => entry.staff === exportStaffName);
   if (exportStaffName !== "all" && !selectedFaculty) exportStaffName = "all";
@@ -1694,9 +1971,9 @@ function renderExport() {
             <article class="schedule-card">
               <div class="schedule-card-head">
                 <h2>Faculty summary</h2>
-                <p>Workload counts by subject, split into teaching and supporting staff.</p>
+                <p>Flat assignment list with search, filters, and sortable columns.</p>
               </div>
-              <button type="button" class="btn btn--secondary btn--sm" data-action="export-summary-pdf" ${exportDisabled(summaryReady, "Add a subject or lab first.")}>Print faculty summary</button>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="export-summary-pdf" ${exportDisabled(summaryReady, "Add staff assignments first.")}>Print faculty summary</button>
             </article>
 
             <article class="schedule-card">
@@ -1765,13 +2042,41 @@ function bindExport() {
 
 function renderMenu() {
   const fromColumn = project.columns.find((item) => item.id === menu?.columnId);
-  const canSupport = fromColumn && isMappingColumn(fromColumn);
+  if (!fromColumn) return "";
+  const mode = menu.mode || "add";
+  const canSupport = isMappingColumn(fromColumn);
+  const canRename = isMappingColumn(fromColumn);
+  const canDelete = isMappingColumn(fromColumn);
+  const canAdd = isMappingColumn(fromColumn) || fromColumn.kind === "sectionName";
+  const addOptions = `
+    <button type="button" role="menuitem" data-menu="subject">Add new subject</button>
+    <button type="button" role="menuitem" data-menu="lab">Add lab</button>
+    ${canSupport ? `<button type="button" role="menuitem" data-menu="support">Add supporting staff for this subject/lab</button>` : ""}
+    ${canSupport && fromColumn.kind === "subject" ? `<button type="button" role="menuitem" data-menu="lab-linked">Add lab for this subject</button>` : ""}
+  `;
+
+  if (mode === "actions") {
+    const addOpen = menu.submenu === "add";
+    const flipSubmenu = addOpen && menu.x > window.innerWidth - 520;
+    return `<div class="map-menu-backdrop" data-close-menu="1"></div>
+      <div class="map-menu" style="left:${menu.x}px;top:${menu.y}px" role="menu" aria-label="Column actions">
+        ${canRename ? `<button type="button" role="menuitem" data-col-action="rename">Rename column</button>` : ""}
+        ${canAdd ? `
+          <div class="map-menu-item-wrap ${addOpen ? "is-open" : ""} ${flipSubmenu ? "is-flip" : ""}">
+            <button type="button" role="menuitem" class="map-menu-item-has-sub" data-col-action="add" aria-haspopup="menu" aria-expanded="${addOpen ? "true" : "false"}">
+              <span>Add column</span>
+              <span class="map-menu-item-chevron" aria-hidden="true">${ICON.chevron}</span>
+            </button>
+            ${addOpen ? `<div class="map-menu-submenu" role="menu" aria-label="Add column">${addOptions}</div>` : ""}
+          </div>
+        ` : ""}
+        ${canDelete ? `<button type="button" role="menuitem" class="is-danger" data-col-action="delete">Delete column</button>` : ""}
+      </div>`;
+  }
+
   return `<div class="map-menu-backdrop" data-close-menu="1"></div>
     <div class="map-menu" style="left:${menu.x}px;top:${menu.y}px" role="menu" aria-label="Add column">
-      <button type="button" role="menuitem" data-menu="subject">Add new subject</button>
-      <button type="button" role="menuitem" data-menu="lab">Add lab</button>
-      ${canSupport ? `<button type="button" role="menuitem" data-menu="support">Add supporting staff for this subject/lab</button>` : ""}
-      ${canSupport && fromColumn.kind === "subject" ? `<button type="button" role="menuitem" data-menu="lab-linked">Add lab for this subject</button>` : ""}
+      ${addOptions}
     </div>`;
 }
 
@@ -1782,32 +2087,61 @@ function bind() {
     button.onclick = () => runAction(button.dataset.action);
   });
 
-  app.querySelectorAll("[data-add-col]").forEach((button) => {
+  app.querySelectorAll("[data-col-menu]").forEach((button) => {
     button.onclick = (event) => {
       event.stopPropagation();
-      const column = project.columns.find((item) => item.id === button.dataset.addCol);
+      const column = project.columns.find((item) => item.id === button.dataset.colMenu);
       if (!column) return;
       const rect = button.getBoundingClientRect();
       menu = {
         columnId: column.id,
-        x: Math.min(rect.left, window.innerWidth - 280),
+        mode: "actions",
+        submenu: null,
+        x: Math.min(rect.right - 200, window.innerWidth - 220),
         y: rect.bottom + 6,
       };
       render();
     };
   });
 
-  app.querySelectorAll("[data-del-col]").forEach((button) => {
+  app.querySelectorAll("[data-col-action]").forEach((button) => {
     button.onclick = () => {
-      const column = project.columns.find((item) => item.id === button.dataset.delCol);
-      if (!column) return;
-      if (!confirm(`Delete column "${columnHeader(column)}"?`)) return;
-      try {
-        deleteColumn(project, column.id);
-        save();
+      const fromColumn = project.columns.find((item) => item.id === menu?.columnId);
+      const action = button.dataset.colAction;
+      if (!fromColumn) {
+        closeMenu();
         render();
-      } catch (error) {
-        toast(error.message, "error");
+        return;
+      }
+      if (action === "rename") {
+        renameColumnId = fromColumn.id;
+        closeMenu();
+        render();
+        return;
+      }
+      if (action === "add") {
+        menu = {
+          ...menu,
+          mode: "actions",
+          submenu: menu.submenu === "add" ? null : "add",
+        };
+        render();
+        return;
+      }
+      if (action === "delete") {
+        closeMenu();
+        if (!confirm(`Delete column "${columnHeader(fromColumn)}"?`)) {
+          render();
+          return;
+        }
+        try {
+          deleteColumn(project, fromColumn.id);
+          save();
+          render();
+        } catch (error) {
+          toast(error.message, "error");
+          render();
+        }
       }
     };
   });
@@ -1829,8 +2163,10 @@ function bind() {
       const column = project.columns.find((item) => item.id === el.dataset.rename);
       if (!column || !isMappingColumn(column)) return;
       const ok = renameMappingColumn(project, column.id, el.textContent);
+      renameColumnId = null;
       if (!ok) {
-        el.textContent = columnHeader(column);
+        el.textContent = columnDisplayTitle(column);
+        render();
         return;
       }
       save();
@@ -1844,11 +2180,24 @@ function bind() {
       if (event.key === "Escape") {
         event.preventDefault();
         const column = project.columns.find((item) => item.id === el.dataset.rename);
-        if (column) el.textContent = columnHeader(column);
+        renameColumnId = null;
+        if (column) el.textContent = columnDisplayTitle(column);
         el.blur();
       }
     });
   });
+
+  if (renameColumnId) {
+    const renameEl = app.querySelector(`[data-rename="${renameColumnId}"]`);
+    if (renameEl) {
+      renameEl.focus();
+      const range = document.createRange();
+      range.selectNodeContents(renameEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
 
   app.querySelectorAll("[data-cell-row]").forEach((input) => {
     input.addEventListener("focus", () => {
@@ -1931,6 +2280,17 @@ function runAction(name) {
   }
   if (name === "start-planning") {
     dismissIntro();
+    return;
+  }
+  if (name === "create-new-timetable") {
+    markIntroSeen();
+    project = createProject();
+    save();
+    scheduleRowId = project.rows[0]?.id || null;
+    selected = null;
+    closeMenu();
+    view = "mapping";
+    render();
     return;
   }
   if (name === "open-projects") {
@@ -2018,7 +2378,8 @@ function runAction(name) {
   }
   if (name === "export-summary-pdf") {
     try {
-      const filename = exportFacultySummaryPdf(project);
+      const rows = view === "summary" ? visibleSummaryRows() : facultySummaryRows(project);
+      const filename = exportFacultySummaryPdf(project, rows);
       toast(`Print dialog opened for ${filename}.`);
     } catch (error) {
       toast(error.message || "Could not export the faculty summary.", "error");

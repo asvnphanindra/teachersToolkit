@@ -106,6 +106,17 @@ export function columnHeader(column) {
   return column.title || "Column";
 }
 
+/** Visible header label only — no staff/support role suffixes. */
+export function columnDisplayTitle(column) {
+  if (column.kind === "sectionId") return "Section Id";
+  if (column.kind === "sectionName") return "Section Name";
+  if (column.kind === "lab" || (column.kind === "support" && column.baseKind === "lab")) {
+    const title = String(column.title || "").trim() || "Lab";
+    return /\blab\b/i.test(title) ? title : `${title} Lab`;
+  }
+  return String(column.title || "").trim() || "Column";
+}
+
 export function isMappingColumn(column) {
   return ["subject", "lab", "support"].includes(column.kind);
 }

@@ -1,5 +1,5 @@
 import { columnHeader } from "./models.js";
-import { facultySummaryTables } from "./summary.js";
+import { facultySummaryRows } from "./summary.js";
 import {
   facultyTimetables,
   getSlot,
@@ -253,53 +253,41 @@ export function exportFacultyTimetablesPdf(project, options = {}) {
   return openPrintWindow(filename, body);
 }
 
-export function exportFacultySummaryPdf(project) {
-  const tables = facultySummaryTables(project);
-  if (!tables.length) throw new Error("Add a subject or lab before exporting the faculty summary.");
+export function exportFacultySummaryPdf(project, rows = null) {
+  const list = Array.isArray(rows) ? rows : facultySummaryRows(project);
+  if (!list.length) throw new Error("Add staff assignments before exporting the faculty summary.");
   const { filename, exportedAt } = exportMeta(project, "faculty-summary");
   const body = `
     <section>
       ${sheetHeader(
         project,
         project.name || "Faculty summary",
-        `Class Timetable · Plan · Faculty summary · ${project.rows.length} section${project.rows.length === 1 ? "" : "s"}`,
+        `Class Timetable · Plan · Faculty summary · ${list.length} row${list.length === 1 ? "" : "s"}`,
         filename,
         exportedAt,
       )}
-      ${tables.map((table) => {
-        const columnCount = table.hasLab ? 4 : 3;
-        const roleBlock = (rows, label, roleClass, startAt) => {
-          if (!rows.length) return "";
-          return `
-            <tr class="summary-role ${roleClass}"><th colspan="${columnCount}">${esc(label)}</th></tr>
-            ${rows.map((row, index) => `
-              <tr>
-                <td>${startAt + index + 1}</td>
-                <td>${esc(row.staff)}</td>
-                <td>${table.type === "lab" ? row.labAssignments.length : row.subjectAssignments.length}</td>
-                ${table.hasLab ? `<td>${row.labAssignments.length}</td>` : ""}
-              </tr>
-            `).join("")}
-          `;
-        };
-        return `
-          <h2 style="margin:16px 0 8px;color:#1e3a5f;font-size:13pt">${esc(table.title)}</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>S. No.</th>
-                <th>Staff member</th>
-                <th>Sections</th>
-                ${table.hasLab ? "<th>Lab sections</th>" : ""}
-              </tr>
-            </thead>
-            <tbody>
-              ${roleBlock(table.staffRows, "Teaching staff", "summary-role--teaching", 0)}
-              ${roleBlock(table.supportRows, "Supporting staff", "summary-role--support", table.staffRows.length)}
-            </tbody>
-          </table>
-        `;
-      }).join("")}
+      <table>
+        <thead>
+          <tr>
+            <th>Section</th>
+            <th>Subject</th>
+            <th>Faculty name</th>
+            <th>Type</th>
+            <th>Faculty cumulative number</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map((row) => `
+            <tr>
+              <td>${esc(row.section)}</td>
+              <td>${esc(row.subject)}</td>
+              <td>${esc(row.faculty)}</td>
+              <td>${esc(row.type)}</td>
+              <td>${esc(String(row.facultyCount))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
     </section>
   `;
   return openPrintWindow(filename, body);
