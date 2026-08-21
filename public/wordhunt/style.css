@@ -3,8 +3,8 @@
   --muted: #86868b;
   --paper: #f5f5f7;
   --card: #fbfbfd;
-  --primary: #0071e3;
-  --primary-dark: #0077ed;
+  --primary: #0A6B6B;
+  --primary-dark: #0C7C7C;
   --line: rgba(0, 0, 0, 0.06);
   --success: #1d7a37;
   --warning: #9a6700;
@@ -18,7 +18,7 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    radial-gradient(900px 420px at 50% -40px, rgba(0, 113, 227, 0.06), transparent 60%),
+    radial-gradient(900px 420px at 50% -40px, rgba(10, 107, 107, 0.06), transparent 60%),
     linear-gradient(180deg, #fbfbfd 0%, var(--paper) 46%);
   background-attachment: fixed;
   color: var(--ink);
@@ -35,8 +35,8 @@ button {
   cursor: pointer;
 }
 button:hover { background: var(--primary-dark); }
-button.secondary { background: #eaf2fc; color: var(--ink); }
-button.secondary:hover { background: #dce9f8; }
+button.secondary { background: #E6F3F3; color: var(--ink); }
+button.secondary:hover { background: #d9ecec; }
 .app-shell { max-width: 1600px; margin: 0 auto; padding: clamp(1rem, 2.5vw, 2.5rem); }
 .app-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
 .eyebrow { color: var(--primary); font-weight: 700; font-size: 0.78rem; letter-spacing: 0.11em; margin: 0 0 0.2rem; }

@@ -12,16 +12,17 @@ Use these values everywhere. In `toolkit.css` they live on `:root` as `--color-*
   --color-panel: #fbfbfd;
   --color-text: #1d1d1f;
   --color-text-muted: #86868b;
-  --color-accent: #0071e3;
-  --color-accent-hover: #0077ed;
-  --color-accent-tint: rgba(0, 113, 227, 0.06);
+  --color-accent: #0A6B6B;
+  --color-accent-hover: #0C7C7C;
+  --color-accent-soft: #E6F3F3;
+  --color-accent-tint: rgba(10, 107, 107, 0.06);
   --color-border: rgba(0, 0, 0, 0.06);
   --font-display: "Sora", "Source Sans 3", sans-serif;
   --font: "Source Sans 3", sans-serif;
 }
 ```
 
-Background recipe: `--color-panel` → `--color-bg` with a faint blue radial. Alternate bands between panel and bg so no large area is pure white.
+Background recipe: `--color-panel` → `--color-bg` with a faint teal radial. Alternate bands between panel and bg so no large area is pure white.
 
 ## Header
 

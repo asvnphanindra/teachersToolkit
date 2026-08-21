@@ -65,6 +65,7 @@ import {
   timeToMinutes,
   toggleStaffBusy,
   updateTimeSlotLabel,
+  weekLoadSummary,
 } from "./schedule.js";
 import {
   STAGES,
@@ -132,29 +133,229 @@ function askName(label, defaultValue = "") {
   return title;
 }
 
-function howItWorksButton() {
-  return `<button type="button" class="btn btn--secondary btn--sm" data-action="show-intro">How it works</button>`;
+let appMenu = null; // file | view | help
+
+function statusChip() {
+  const issues = mappingIssues(project);
+  return issues.length
+    ? `<span class="map-status warn" role="status">${issues.length} to fix</span>`
+    : `<span class="map-status ok" role="status">Ready</span>`;
 }
 
 function renderStageNav(currentView) {
   const state = stageState(project, currentView);
-  return `<nav class="map-stage-nav" aria-label="Timetable stages">
-    ${state.stages.map((stage, index) => `
-      <button type="button"
-        class="map-stage-step ${stage.current ? "is-current" : ""} ${stage.complete ? "is-complete" : ""} ${stage.locked ? "is-locked" : ""}"
-        data-goto-stage="${stage.id}"
-        ${stage.locked ? 'aria-disabled="true"' : ""}
-        ${stage.current ? 'aria-current="step"' : ""}
-        title="${esc(stage.description)}">
-        <span class="map-stage-num">${stage.complete && !stage.current ? "✓" : stage.number}</span>
-        <span class="map-stage-copy">
-          <strong class="map-stage-label">${esc(stage.label)}</strong>
-          <span class="map-stage-hint">${esc(stage.description)}</span>
-        </span>
-      </button>
-      ${index < state.stages.length - 1 ? '<span class="map-stage-connector" aria-hidden="true"></span>' : ""}
-    `).join("")}
+  const infoIcon = `<svg class="map-stage-info-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="5" r="1" fill="currentColor"/><path d="M8 7.25v4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+  return `<nav class="map-stage-nav map-stage-nav--chevron" aria-label="Timetable stages">
+    <div class="map-stage-track">
+      ${state.stages.map((stage) => `
+        <div class="map-stage-segment ${stage.current ? "is-current" : ""} ${stage.complete ? "is-complete" : ""} ${stage.locked ? "is-locked" : ""}">
+          <button type="button"
+            class="map-stage-step"
+            data-goto-stage="${stage.id}"
+            ${stage.locked ? 'aria-disabled="true"' : ""}
+            ${stage.current ? 'aria-current="step"' : ""}>
+            <span class="map-stage-num">${stage.complete && !stage.current ? "✓" : stage.number}</span>
+            <strong class="map-stage-label">${esc(stage.label)}</strong>
+          </button>
+          <span class="map-stage-info" tabindex="0" role="button" aria-label="About ${esc(stage.label)}" data-tip="${esc(stage.description)}">${infoIcon}</span>
+        </div>
+      `).join("")}
+    </div>
   </nav>`;
+}
+
+function renderMenuBar(currentView) {
+  const showEditWeek = currentView === "schedule";
+  const showBackMapping = ["summary", "timingSetup", "schedule", "projects"].includes(currentView);
+  return `
+    <div class="map-menu-bar" role="menubar" aria-label="Application menu">
+      <div class="map-menu-wrap ${appMenu === "file" ? "is-open" : ""}">
+        <button type="button" class="map-menu-trigger" data-app-menu="file" aria-haspopup="true" aria-expanded="${appMenu === "file" ? "true" : "false"}">File</button>
+        <div class="map-menu-panel" role="menu">
+          <button type="button" role="menuitem" data-action="new-project">New project</button>
+          <button type="button" role="menuitem" data-action="open-projects">Open saved projects…</button>
+          <button type="button" role="menuitem" data-action="import">Import JSON</button>
+          <button type="button" role="menuitem" data-action="export">Export JSON</button>
+        </div>
+      </div>
+      <div class="map-menu-wrap ${appMenu === "view" ? "is-open" : ""}">
+        <button type="button" class="map-menu-trigger" data-app-menu="view" aria-haspopup="true" aria-expanded="${appMenu === "view" ? "true" : "false"}">View</button>
+        <div class="map-menu-panel" role="menu">
+          <button type="button" role="menuitem" data-action="summary">Faculty summary</button>
+          ${showEditWeek ? `<button type="button" role="menuitem" data-action="edit-timings">Edit week plan</button>` : ""}
+          ${showBackMapping ? `<button type="button" role="menuitem" data-action="back-to-mapping">Back to mapping</button>` : ""}
+        </div>
+      </div>
+      <div class="map-menu-wrap ${appMenu === "help" ? "is-open" : ""}">
+        <button type="button" class="map-menu-trigger" data-app-menu="help" aria-haspopup="true" aria-expanded="${appMenu === "help" ? "true" : "false"}">Help</button>
+        <div class="map-menu-panel" role="menu">
+          <button type="button" role="menuitem" data-action="show-intro">How it works</button>
+          <button type="button" role="menuitem" data-action="fill-test">Fill test data</button>
+        </div>
+      </div>
+      ${statusChip()}
+      <span class="map-chrome-autosave" title="Data stays in this browser only"><span class="map-privacy-dot" aria-hidden="true"></span>Autosaved locally</span>
+    </div>
+    <input type="file" id="import-mapping-file" accept="application/json,.json,.mapping.json" hidden>`;
+}
+
+function renderAppChrome(currentView) {
+  return `<header class="map-app-chrome">
+    <div class="map-chrome-top">
+      <a href="../index.html" class="map-chrome-back">← Teacher's Toolkit</a>
+    </div>
+    <div class="map-chrome-main">
+      <input class="map-doc-title" id="project-name" value="${esc(project.name)}" maxlength="80" aria-label="Project name" placeholder="Untitled timetable">
+      ${renderStageNav(currentView)}
+    </div>
+    ${renderMenuBar(currentView)}
+  </header>`;
+}
+
+function nextStepForView(currentView) {
+  if (currentView === "mapping") return { label: "Plan the week", action: "start-step-2" };
+  if (currentView === "timingSetup") return { label: "Open scheduler", action: "open-schedule" };
+  if (currentView === "schedule") return { label: "Export", action: "goto-export" };
+  return null;
+}
+
+function prevStepForView(currentView) {
+  if (currentView === "timingSetup") return { label: "Section mapping", action: "back-to-mapping" };
+  if (currentView === "schedule") return { label: "Edit week plan", action: "edit-timings" };
+  if (currentView === "export") return { label: "Schedule", action: "back-to-schedule" };
+  return null;
+}
+
+function renderFab(currentView) {
+  const step = nextStepForView(currentView);
+  if (!step) return "";
+  return `<div class="map-fab-zone">
+    <button type="button" class="map-fab" data-action="${step.action}" aria-label="${esc(step.label)}">
+      <span class="map-fab-label">${esc(step.label)}</span>
+      <span class="map-fab-arrow" aria-hidden="true">→</span>
+    </button>
+  </div>`;
+}
+
+function renderBackFab(currentView) {
+  const step = prevStepForView(currentView);
+  if (!step) return "";
+  return `<div class="map-fab-zone map-fab-zone--back">
+    <button type="button" class="map-fab map-fab--back" data-action="${step.action}" aria-label="${esc(step.label)}">
+      <span class="map-fab-arrow" aria-hidden="true">←</span>
+      <span class="map-fab-label">${esc(step.label)}</span>
+    </button>
+  </div>`;
+}
+
+function renderSavedProjectsList() {
+  const projects = listProjects();
+  return projects.length ? projects.map((item) => `
+    <div class="map-saved-item ${item.id === project.id ? "active" : ""}">
+      <button type="button" data-open="${item.id}" aria-current="${item.id === project.id ? "true" : "false"}">
+        <strong>${esc(item.name)}</strong>
+        <span>${new Date(item.updatedAt).toLocaleString()}</span>
+      </button>
+      <button type="button" class="map-icon-btn danger" data-delete-saved="${item.id}" title="Delete project" aria-label="Delete ${esc(item.name)}">${ICON.close}</button>
+    </div>
+  `).join("") : `<p class="map-saved-empty">No saved projects yet. Create one from File → New project.</p>`;
+}
+
+function closeAppMenu() {
+  appMenu = null;
+  document.querySelector(".map-app-menu-backdrop")?.remove();
+}
+
+function bindSavedProjects() {
+  app.querySelectorAll("[data-open]").forEach((button) => {
+    button.onclick = () => {
+      const next = loadProject(button.dataset.open);
+      if (!next) return toast("Could not open that project.", "error");
+      project = next;
+      scheduleRowId = project.rows[0]?.id || null;
+      selected = null;
+      closeMenu();
+      closeAppMenu();
+      view = "mapping";
+      render();
+    };
+  });
+  app.querySelectorAll("[data-delete-saved]").forEach((button) => {
+    button.onclick = () => {
+      const id = button.dataset.deleteSaved;
+      const entry = listProjects().find((item) => item.id === id);
+      if (!confirm(`Delete "${entry?.name || "this project"}" from this browser?`)) return;
+      deleteProject(id);
+      if (project.id === id) {
+        const remaining = listProjects()[0];
+        project = remaining ? loadProject(remaining.id) : createProject();
+        scheduleRowId = project.rows[0]?.id || null;
+        if (!remaining) save();
+      }
+      toast("Project deleted.");
+      render();
+    };
+  });
+}
+
+function bindAppChrome() {
+  app.querySelectorAll("[data-goto-stage]").forEach((button) => {
+    button.onclick = () => goToStage(button.dataset.gotoStage);
+  });
+  const nameInput = app.querySelector("#project-name");
+  if (nameInput) {
+    nameInput.onchange = () => {
+      project.name = nameInput.value.trim() || "My class timetable";
+      save();
+    };
+    nameInput.onkeydown = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        nameInput.blur();
+      }
+    };
+  }
+  app.querySelectorAll("[data-app-menu]").forEach((trigger) => {
+    trigger.onclick = (event) => {
+      event.stopPropagation();
+      const id = trigger.dataset.appMenu;
+      appMenu = appMenu === id ? null : id;
+      render();
+    };
+  });
+  app.querySelectorAll(".map-menu-panel [data-action]").forEach((button) => {
+    button.onclick = (event) => {
+      event.stopPropagation();
+      runAction(button.dataset.action);
+    };
+  });
+  if (appMenu) {
+    const backdrop = document.createElement("div");
+    backdrop.className = "map-app-menu-backdrop";
+    backdrop.dataset.closeAppMenu = "1";
+    backdrop.onclick = () => {
+      closeAppMenu();
+      render();
+    };
+    document.body.append(backdrop);
+  }
+}
+
+function openScheduleFromSetup() {
+  saveTimingSetup();
+  saveSubjectLoad();
+  const missing = unsetLoadColumns(project);
+  if (missing.length) {
+    toast(`Set periods per week for: ${missing.map(loadColumnLabel).join(", ")}.`, "error");
+    return;
+  }
+  const summary = weekLoadSummary(project);
+  if (summary.over) {
+    toast(`Subject load is ${summary.planned} periods; the week only has ${summary.capacity} (${summary.days} days × ${summary.periods} periods).`, "error");
+    return;
+  }
+  view = "schedule";
+  render();
 }
 
 function renderFooter(currentView) {
@@ -166,6 +367,7 @@ function renderFooter(currentView) {
 }
 
 function goToStage(stageId) {
+  closeAppMenu();
   const state = stageState(project, view);
   const target = state.byId[stageId];
   if (!target) return;
@@ -192,13 +394,8 @@ function goToStage(stageId) {
 }
 
 function bindChrome() {
-  app.querySelectorAll("[data-goto-stage]").forEach((button) => {
-    button.onclick = () => goToStage(button.dataset.gotoStage);
-  });
-  app.querySelector("[data-action='show-intro']")?.addEventListener("click", () => {
-    view = "intro";
-    render();
-  });
+  bindAppChrome();
+  bindImportInput();
 }
 
 const GRIP_WIDTH = 40;
@@ -346,8 +543,11 @@ function render() {
     renderExport();
     return;
   }
+  if (view === "projects") {
+    renderProjects();
+    return;
+  }
   const issues = mappingIssues(project);
-  const projects = listProjects();
   const tableWidth = ACTION_WIDTH + GRIP_WIDTH
     + project.columns.reduce((sum, column) => sum + (column.width || 150), 0);
   const rowCount = project.rows.length;
@@ -358,33 +558,7 @@ function render() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
-        ${renderStageNav("mapping")}
-        <header class="map-header" role="toolbar" aria-label="Mapping tools">
-          <div class="map-header-left">
-            <label class="map-project-name">
-              <span class="visually-hidden">Project name</span>
-              <input id="project-name" value="${esc(project.name)}" maxlength="80" aria-label="Project name" placeholder="Project name">
-            </label>
-            <p class="map-privacy" title="Data stays in this browser only">
-              <span class="map-privacy-dot" aria-hidden="true"></span>
-              Autosaved locally
-            </p>
-          </div>
-          <div class="map-header-actions">
-            ${issues.length
-              ? `<span class="map-status warn" role="status">${issues.length} to fix</span>`
-              : `<span class="map-status ok" role="status">Ready</span>`}
-            ${howItWorksButton()}
-          </div>
-        </header>
-
-        <div class="map-action-bar" aria-label="Mapping actions">
-          <div class="map-action-bar-left">
-            <button type="button" class="btn btn--secondary btn--sm" data-action="fill-test" title="Load sample sections, subjects, labs, and staff">Fill test data</button>
-            <button type="button" class="btn btn--secondary btn--sm" data-action="summary">Faculty summary</button>
-            <button type="button" class="btn btn--secondary btn--sm" data-action="new-project">New</button>
-          </div>
-        </div>
+        ${renderAppChrome("mapping")}
 
         <section class="map-main" aria-label="Section mapping">
           <div class="map-workspace">
@@ -465,7 +639,6 @@ function render() {
 
             <div class="map-table-footer">
               <button type="button" class="btn btn--secondary btn--sm" data-action="add-rows">+ Add rows</button>
-              <button type="button" class="btn btn--primary btn--sm" data-action="start-step-2">Plan the week</button>
             </div>
           </div>
 
@@ -477,28 +650,12 @@ function render() {
           ` : ""}
         </section>
 
-        <section class="map-saved" aria-label="Saved projects">
-          <div class="map-saved-head">
-            <h2>Saved projects</h2>
-            <span class="map-saved-note">This browser only</span>
-          </div>
-          <div class="map-saved-list">
-            ${projects.length ? projects.map((item) => `
-              <div class="map-saved-item ${item.id === project.id ? "active" : ""}">
-                <button type="button" data-open="${item.id}" aria-current="${item.id === project.id ? "true" : "false"}">
-                  <strong>${esc(item.name)}</strong>
-                  <span>${new Date(item.updatedAt).toLocaleString()}</span>
-                </button>
-                <button type="button" class="map-icon-btn danger" data-delete-saved="${item.id}" title="Delete project" aria-label="Delete ${esc(item.name)}">${ICON.close}</button>
-              </div>
-            `).join("") : `<p class="map-saved-empty">No other projects yet. Create one with New.</p>`}
-          </div>
-        </section>
-
         ${renderFooter("mapping")}
       </div>
     </div>
 
+    ${renderBackFab("mapping")}
+    ${renderFab("mapping")}
     ${menu ? renderMenu() : ""}
   `;
   bind();
@@ -533,16 +690,7 @@ function renderSummary() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
-        ${renderStageNav("summary")}
-        <header class="map-header" role="toolbar" aria-label="Faculty summary tools">
-          <div class="map-header-left">
-            <h1 class="map-summary-project">${esc(project.name)}</h1>
-          </div>
-          <div class="map-header-actions">
-            ${howItWorksButton()}
-            <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
-          </div>
-        </header>
+        ${renderAppChrome("summary")}
 
         <main class="map-summary" aria-label="Faculty statistics by subject">
           <div class="map-summary-intro">
@@ -585,11 +733,8 @@ function renderSummary() {
     </div>
   `;
   bindChrome();
-  app.querySelectorAll("[data-action='back-to-mapping']").forEach((button) => {
-    button.onclick = () => {
-      view = "mapping";
-      render();
-    };
+  app.querySelectorAll("[data-action]").forEach((button) => {
+    button.onclick = () => runAction(button.dataset.action);
   });
 }
 
@@ -609,17 +754,7 @@ function renderTimingSetup() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
-        ${renderStageNav("timingSetup")}
-        <header class="map-header" role="toolbar" aria-label="Schedule setup tools">
-          <div class="map-header-left">
-            <h1 class="map-summary-project">${esc(project.name)}</h1>
-          </div>
-          <div class="map-header-actions">
-            ${howItWorksButton()}
-            <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
-            <button type="button" class="btn btn--primary btn--sm" data-action="open-schedule">Open scheduler</button>
-          </div>
-        </header>
+        ${renderAppChrome("timingSetup")}
 
         <main class="schedule-setup" aria-label="Schedule timing setup">
           <section class="schedule-card">
@@ -640,7 +775,7 @@ function renderTimingSetup() {
           <section class="schedule-card">
             <div class="schedule-card-head">
               <h2>Day timeline</h2>
-              <p>A school day from 09:00 to 17:00. Drag either edge of a break to make it longer or shorter — the rest of the day slides with it.</p>
+              <p>A working day from 09:00 to 17:00. Drag either edge of a break to make it longer or shorter — the rest of the day slides with it.</p>
             </div>
             <div class="schedule-timeline" id="setup-timeline">
               <div class="schedule-timeline-scale" aria-hidden="true">
@@ -670,31 +805,51 @@ function renderTimingSetup() {
         ${renderFooter("timingSetup")}
       </div>
     </div>
+    ${renderBackFab("timingSetup")}
+    ${renderFab("timingSetup")}
   `;
   bindTimingSetup();
+}
+
+function weekLoadFooterCopy(summary) {
+  const main = `${summary.planned} / ${summary.capacity} periods this week`;
+  if (summary.over) return `${main} · ${summary.overBy} over capacity`;
+  if (summary.empty === 0) return `${main} · no empty slots`;
+  return `${main} · ${summary.empty} empty`;
+}
+
+function refreshLoadSummary() {
+  const foot = app.querySelector("[data-load-summary]");
+  if (!foot) return;
+  const summary = weekLoadSummary(project);
+  const text = foot.querySelector("[data-load-summary-text]");
+  if (text) text.textContent = weekLoadFooterCopy(summary);
+  foot.classList.toggle("is-over", summary.over);
 }
 
 function renderSubjectLoadCard() {
   const columns = (project.columns || []).filter(isLoadColumn);
   if (!columns.length) return "";
+  const summary = weekLoadSummary(project);
   return `
           <section class="schedule-card">
             <div class="schedule-card-head">
               <h2>Subject load</h2>
-              <p>These numbers apply to every section. Set periods per week before opening the scheduler.</p>
+              <p>These numbers apply to every section. Empty slots are leftover periods in a section week before you open the scheduler.</p>
             </div>
             <div class="schedule-load-list">
               ${columns.map((column) => {
                 const quota = parsePeriodsPerWeek(column.periodsPerWeek);
+                const countLabel = column.kind === "lab" ? "Hours per week" : "Periods per week";
                 return `
                 <div class="schedule-load-row" data-load-column="${column.id}">
                   <span class="schedule-load-name">${esc(loadColumnLabel(column))}</span>
                   <label class="schedule-load-periods">
-                    <span>Periods per week</span>
+                    <span>${countLabel}</span>
                     <input type="number" min="1" max="12" step="1" inputmode="numeric"
                       data-periods-week="1"
                       value="${quota == null ? "" : quota}"
-                      aria-label="Periods per week for ${esc(loadColumnLabel(column))}">
+                      aria-label="${esc(`${countLabel} for ${loadColumnLabel(column)}`)}">
                   </label>
                   <label class="schedule-load-repeat">
                     <input type="checkbox" data-allow-repeat="1" ${column.allowSameDayRepeat ? "checked" : ""}>
@@ -702,6 +857,10 @@ function renderSubjectLoadCard() {
                   </label>
                 </div>`;
               }).join("")}
+              <div class="schedule-load-foot ${summary.over ? "is-over" : ""}" data-load-summary>
+                <p class="schedule-load-foot-main" data-load-summary-text>${esc(weekLoadFooterCopy(summary))}</p>
+                <p class="schedule-load-foot-note">Capacity is working days × periods per day, for each section.</p>
+              </div>
             </div>
           </section>
   `;
@@ -738,25 +897,26 @@ function renderTimelineSegment(row, index, span) {
 
 function bindTimingSetup() {
   bindChrome();
-  app.querySelector("[data-action='back-to-mapping']").onclick = () => {
-    view = "mapping";
-    render();
-  };
-  app.querySelector("[data-action='open-schedule']").onclick = () => {
-    saveTimingSetup();
-    saveSubjectLoad();
-    const missing = unsetLoadColumns(project);
-    if (missing.length) {
-      toast(`Set periods per week for: ${missing.map(loadColumnLabel).join(", ")}.`, "error");
-      return;
-    }
-    view = "schedule";
-    render();
-  };
-  app.querySelectorAll("#setup-days input").forEach((input) => {
-    input.onchange = () => saveTimingSetup();
+  app.querySelectorAll("[data-action]").forEach((button) => {
+    button.onclick = () => runAction(button.dataset.action);
   });
-  app.querySelectorAll("[data-load-column] [data-periods-week], [data-load-column] [data-allow-repeat]").forEach((input) => {
+  app.querySelectorAll("#setup-days input").forEach((input) => {
+    input.onchange = () => {
+      saveTimingSetup();
+      refreshLoadSummary();
+    };
+  });
+  app.querySelectorAll("[data-load-column] [data-periods-week]").forEach((input) => {
+    input.oninput = () => {
+      saveSubjectLoad({ persist: false });
+      refreshLoadSummary();
+    };
+    input.onchange = () => {
+      saveSubjectLoad();
+      refreshLoadSummary();
+    };
+  });
+  app.querySelectorAll("[data-load-column] [data-allow-repeat]").forEach((input) => {
     input.onchange = () => saveSubjectLoad();
   });
   app.querySelector("[data-action='add-period']")?.addEventListener("click", () => {
@@ -829,7 +989,7 @@ function saveTimingSetup() {
   applyTimingSetup(currentTimeRows());
 }
 
-function saveSubjectLoad() {
+function saveSubjectLoad({ persist = true } = {}) {
   app.querySelectorAll("[data-load-column]").forEach((row) => {
     const column = project.columns.find((item) => item.id === row.dataset.loadColumn);
     if (!column || !isLoadColumn(column)) return;
@@ -838,7 +998,7 @@ function saveSubjectLoad() {
     else column.periodsPerWeek = parsed;
     column.allowSameDayRepeat = Boolean(row.querySelector("[data-allow-repeat]")?.checked);
   });
-  save();
+  if (persist) save();
 }
 
 function applyTimelineDrag(clientX) {
@@ -937,18 +1097,7 @@ function renderSchedule() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
-        ${renderStageNav("schedule")}
-        <header class="map-header" role="toolbar" aria-label="Schedule tools">
-          <div class="map-header-left">
-            <h1 class="map-summary-project">${esc(project.name)}</h1>
-          </div>
-          <div class="map-header-actions">
-            ${howItWorksButton()}
-            <button type="button" class="btn btn--secondary btn--sm" data-action="edit-timings">Edit week plan</button>
-            <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button>
-            <button type="button" class="btn btn--primary btn--sm" data-action="goto-export">Export</button>
-          </div>
-        </header>
+        ${renderAppChrome("schedule")}
 
         <main class="schedule-page" aria-label="Timetable scheduler">
           <section class="schedule-controls">
@@ -1031,6 +1180,8 @@ function renderSchedule() {
       </div>
     </div>
 
+    ${renderBackFab("schedule")}
+    ${renderFab("schedule")}
     ${subjectChoice ? renderSubjectChoice() : ""}
   `;
   bindSchedule();
@@ -1143,15 +1294,9 @@ function renderScheduleDayRow(day, columns, rowId) {
 
 function bindSchedule() {
   bindChrome();
-  app.querySelector("[data-action='edit-timings']").onclick = () => {
-    view = "timingSetup";
-    render();
-  };
-  app.querySelector("[data-action='back-to-mapping']").onclick = () => {
-    view = "mapping";
-    render();
-  };
-  app.querySelector("[data-action='goto-export']")?.addEventListener("click", () => goToStage("export"));
+  app.querySelectorAll("[data-action]").forEach((button) => {
+    button.onclick = () => runAction(button.dataset.action);
+  });
   app.querySelector("#schedule-section").onchange = (event) => {
     scheduleRowId = event.target.value;
     scheduleVisibleCount = 7;
@@ -1441,12 +1586,37 @@ function renderIntro() {
           </div>
           <div class="map-intro-actions">
             <button type="button" class="btn btn--primary" data-action="start-planning">Start planning</button>
-            <button type="button" class="btn btn--secondary" data-action="skip-intro">Skip</button>
           </div>
         </section>
       </div>
     </div>
   `;
+  app.querySelectorAll("[data-action]").forEach((button) => {
+    button.onclick = () => runAction(button.dataset.action);
+  });
+}
+
+function renderProjects() {
+  app.innerHTML = `
+    <div class="map-page">
+      <div class="map-shell">
+        ${renderAppChrome("projects")}
+        <main class="map-projects-page" aria-label="Saved projects">
+          <div class="map-projects-head">
+            <h2>Saved projects</h2>
+            <p class="map-projects-note">Projects are stored in this browser only.</p>
+          </div>
+          <div class="map-saved-list">
+            ${renderSavedProjectsList()}
+          </div>
+          <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to timetable</button>
+        </main>
+        ${renderFooter("projects")}
+      </div>
+    </div>
+  `;
+  bindChrome();
+  bindSavedProjects();
   app.querySelectorAll("[data-action]").forEach((button) => {
     button.onclick = () => runAction(button.dataset.action);
   });
@@ -1472,19 +1642,7 @@ function renderExport() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
-        ${renderStageNav("export")}
-        <header class="map-header" role="toolbar" aria-label="Export tools">
-          <div class="map-header-left">
-            <h1 class="map-summary-project">${esc(project.name)}</h1>
-            <p class="map-privacy" title="Data stays in this browser only">
-              <span class="map-privacy-dot" aria-hidden="true"></span>
-              Autosaved locally
-            </p>
-          </div>
-          <div class="map-header-actions">
-            ${howItWorksButton()}
-          </div>
-        </header>
+        ${renderAppChrome("export")}
 
         <main class="map-export" aria-label="Export timetables">
           <section class="schedule-card map-export-stats">
@@ -1550,7 +1708,6 @@ function renderExport() {
                 <button type="button" class="btn btn--secondary btn--sm" data-action="export">Export JSON</button>
                 <button type="button" class="btn btn--secondary btn--sm" data-action="import">Import JSON</button>
               </div>
-              <input id="import-mapping-file" class="visually-hidden" type="file" accept="application/json,.json,.mapping.json" tabindex="-1">
             </article>
           </div>
         </main>
@@ -1558,8 +1715,33 @@ function renderExport() {
         ${renderFooter("export")}
       </div>
     </div>
+
+    ${renderBackFab("export")}
   `;
   bindExport();
+}
+
+function bindImportInput() {
+  const importInput = app.querySelector("#import-mapping-file");
+  if (!importInput) return;
+  importInput.onchange = async () => {
+    const file = importInput.files?.[0];
+    importInput.value = "";
+    if (!file) return;
+    try {
+      const imported = await importProjectJson(file);
+      project = imported;
+      scheduleRowId = project.rows[0]?.id || null;
+      selected = null;
+      closeMenu();
+      closeAppMenu();
+      save();
+      toast(`Imported “${project.name}”.`);
+      render();
+    } catch (error) {
+      toast(error.message || "Import failed.", "error");
+    }
+  };
 }
 
 function bindExport() {
@@ -1579,26 +1761,6 @@ function bindExport() {
       exportStaffName = staffSelect.value;
     };
   }
-  const importInput = app.querySelector("#import-mapping-file");
-  if (importInput) {
-    importInput.onchange = async () => {
-      const file = importInput.files?.[0];
-      importInput.value = "";
-      if (!file) return;
-      try {
-        const imported = await importProjectJson(file);
-        project = imported;
-        scheduleRowId = project.rows[0]?.id || null;
-        selected = null;
-        closeMenu();
-        save();
-        toast(`Imported “${project.name}”.`);
-        render();
-      } catch (error) {
-        toast(error.message || "Import failed.", "error");
-      }
-    };
-  }
 }
 
 function renderMenu() {
@@ -1615,67 +1777,9 @@ function renderMenu() {
 
 function bind() {
   bindChrome();
-  const nameInput = app.querySelector("#project-name");
-  if (nameInput) {
-    nameInput.onchange = () => {
-      project.name = nameInput.value.trim() || "My class timetable";
-      save();
-      render();
-    };
-  }
 
   app.querySelectorAll("[data-action]").forEach((button) => {
     button.onclick = () => runAction(button.dataset.action);
-  });
-
-  const importInput = app.querySelector("#import-mapping-file");
-  if (importInput) {
-    importInput.onchange = async () => {
-      const file = importInput.files?.[0];
-      importInput.value = "";
-      if (!file) return;
-      try {
-        const imported = await importProjectJson(file);
-        project = imported;
-        scheduleRowId = project.rows[0]?.id || null;
-        selected = null;
-        closeMenu();
-        save();
-        toast(`Imported “${project.name}”.`);
-        render();
-      } catch (error) {
-        toast(error.message || "Import failed.", "error");
-      }
-    };
-  }
-
-  app.querySelectorAll("[data-open]").forEach((button) => {
-    button.onclick = () => {
-      const next = loadProject(button.dataset.open);
-      if (!next) return toast("Could not open that project.", "error");
-      project = next;
-      scheduleRowId = project.rows[0]?.id || null;
-      selected = null;
-      closeMenu();
-      render();
-    };
-  });
-
-  app.querySelectorAll("[data-delete-saved]").forEach((button) => {
-    button.onclick = () => {
-      const id = button.dataset.deleteSaved;
-      const entry = listProjects().find((item) => item.id === id);
-      if (!confirm(`Delete "${entry?.name || "this project"}" from this browser?`)) return;
-      deleteProject(id);
-      if (project.id === id) {
-        const remaining = listProjects()[0];
-        project = remaining ? loadProject(remaining.id) : createProject();
-        scheduleRowId = project.rows[0]?.id || null;
-        if (!remaining) save();
-      }
-      toast("Project deleted.");
-      render();
-    };
   });
 
   app.querySelectorAll("[data-add-col]").forEach((button) => {
@@ -1818,13 +1922,44 @@ function bind() {
 }
 
 function runAction(name) {
+  closeAppMenu();
+  document.querySelector(".map-app-menu-backdrop")?.remove();
   if (name === "show-intro") {
     view = "intro";
     render();
     return;
   }
-  if (name === "start-planning" || name === "skip-intro") {
+  if (name === "start-planning") {
     dismissIntro();
+    return;
+  }
+  if (name === "open-projects") {
+    selected = null;
+    closeMenu();
+    view = "projects";
+    render();
+    return;
+  }
+  if (name === "back-to-mapping") {
+    view = "mapping";
+    render();
+    return;
+  }
+  if (name === "edit-timings") {
+    view = "timingSetup";
+    render();
+    return;
+  }
+  if (name === "open-schedule") {
+    openScheduleFromSetup();
+    return;
+  }
+  if (name === "goto-export") {
+    goToStage("export");
+    return;
+  }
+  if (name === "back-to-schedule") {
+    goToStage("schedule");
     return;
   }
   if (name === "add-rows") {

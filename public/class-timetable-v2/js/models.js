@@ -168,7 +168,7 @@ export function addSubjectColumn(project, afterColumnId, subjectTitle) {
     subjectKey,
     baseKind: "subject",
     width: COLUMN_WIDTH.subject,
-    periodsPerWeek: 5,
+    periodsPerWeek: 4,
     allowSameDayRepeat: false,
   };
   const at = findInsertIndexAfter(project.columns, afterColumnId || "col-section-name");
@@ -195,8 +195,8 @@ export function addLabColumn(project, afterColumnId, labTitle, options = {}) {
     subjectKey,
     baseKind: "lab",
     width: COLUMN_WIDTH.lab,
-    periodsPerWeek: 2,
-    allowSameDayRepeat: false,
+    periodsPerWeek: 3,
+    allowSameDayRepeat: true,
   };
   const at = findInsertIndexAfter(project.columns, afterColumnId || linkTo?.id || "col-section-name");
   project.columns.splice(at, 0, column);
@@ -414,7 +414,7 @@ export function fillTestMappingData(project) {
       subjectKey,
       baseKind: "subject",
       width: COLUMN_WIDTH.subject,
-      periodsPerWeek: 5,
+      periodsPerWeek: 4,
       allowSameDayRepeat: false,
     };
     subjectByTitle[def.title] = {
@@ -434,8 +434,8 @@ export function fillTestMappingData(project) {
       subjectKey,
       baseKind: "lab",
       width: COLUMN_WIDTH.lab,
-      periodsPerWeek: 2,
-      allowSameDayRepeat: false,
+      periodsPerWeek: 3,
+      allowSameDayRepeat: true,
     };
     const support = {
       id: uid("col"),
