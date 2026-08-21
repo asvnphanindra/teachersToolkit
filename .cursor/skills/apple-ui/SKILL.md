@@ -29,7 +29,7 @@ For any UI/UX change:
 
 - Frosted / translucent chrome where headers sit over content.
 - Off-white surfaces: `#fbfbfd` (panel) and `#f5f5f7` (canvas/muted bands).
-- Hairline borders (`rgba(0, 0, 0, 0.06)`), single accent `#0071e3`.
+- Hairline borders (`rgba(0, 0, 0, 0.06)`), single education teal accent `#0A6B6B`.
 - No purple/indigo themes, no pure `#ffffff` hero slabs, no `#000000` body text.
 - Touch targets ≥ 40px; visible `:focus-visible` rings.
 - Shadows low-opacity (`<= 0.08`); prefer lift on hover, not at rest.
@@ -65,7 +65,7 @@ Do not restyle PDF export internals, clash math, storage, or other non-visual lo
 
 ## Color and surfaces (canonical palette)
 
-Follow this palette on every surface that adopts apple-ui:
+Follow this palette on every surface that adopts apple-ui (education teal — one accent):
 
 | Role | Token | Value |
 |------|--------|--------|
@@ -74,12 +74,15 @@ Follow this palette on every surface that adopts apple-ui:
 | Frosted chrome | — | `rgba(251, 251, 253, 0.72)` |
 | Primary text | `--color-text` | `#1d1d1f` |
 | Secondary text | `--color-text-muted` | `#86868b` |
-| Accent (CTAs, links) | `--color-accent` | `#0071e3` |
-| Accent hover | `--color-accent-hover` | `#0077ed` |
-| Accent wash | `--color-accent-tint` | `rgba(0, 113, 227, 0.06)` |
+| Accent (CTAs, links) | `--color-accent` | `#0A6B6B` |
+| Accent hover | `--color-accent-hover` | `#0C7C7C` |
+| Accent soft | `--color-accent-soft` | `#E6F3F3` |
+| Accent wash | `--color-accent-tint` | `rgba(10, 107, 107, 0.06)` |
+| Accent deep (chips) | — | `#085858` |
+| Soft page wash | — | `#F0F5F5` |
 | Hairline border | `--color-border` | `rgba(0, 0, 0, 0.06)` |
 | Live badge | — | bg `#eaf7ef` / text `#1d7a37` |
-| Dev badge | — | bg `#eaf2fc` / text `#0062c4` |
+| Dev badge | — | bg `#E6F3F3` / text `#085858` |
 | Soon badge | — | bg `#efeff1` / text `#6e6e73` |
 
 Eye-comfort rules:

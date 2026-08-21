@@ -2,7 +2,7 @@
 :root {
   /* Color — aligned with Teachers Toolkit apple-ui palette */
   --ct-bg: #f5f5f7;
-  --ct-bg-accent: #f0f3f8;
+  --ct-bg-accent: #F0F5F5;
   --ct-surface: #fbfbfd;
   --ct-surface-muted: #f5f5f7;
   --ct-surface-hover: #f0f0f2;
@@ -10,9 +10,10 @@
   --ct-border-strong: #c7c7cc;
   --ct-primary: #1d1d1f;
   --ct-primary-hover: #000000;
-  --ct-accent: #0071e3;
-  --ct-accent-soft: #eaf2fc;
-  --ct-accent-tint: rgba(0, 113, 227, 0.06);
+  --ct-accent: #0A6B6B;
+  --ct-accent-hover: #0C7C7C;
+  --ct-accent-soft: #E6F3F3;
+  --ct-accent-tint: rgba(10, 107, 107, 0.06);
   --ct-chrome: rgba(251, 251, 253, 0.72);
   --ct-text: #1d1d1f;
   --ct-text-secondary: #86868b;
@@ -25,11 +26,11 @@
   --ct-error: #b42318;
   --ct-error-bg: #fef3f2;
   --ct-error-border: #fecdca;
-  --ct-info: #0071e3;
-  --ct-info-bg: #eaf2fc;
-  --ct-mapping: #f3f7ff;
-  --ct-selection: #0071e3;
-  --ct-focus-ring: rgba(0, 113, 227, 0.28);
+  --ct-info: #0A6B6B;
+  --ct-info-bg: #E6F3F3;
+  --ct-mapping: #F0F5F5;
+  --ct-selection: #0A6B6B;
+  --ct-focus-ring: rgba(10, 107, 107, 0.28);
 
   /* Typography */
   --ct-font: "Source Sans 3", sans-serif;
@@ -97,7 +98,7 @@
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(1100px 480px at 50% -60px, rgba(0, 113, 227, 0.06), transparent 62%),
+    radial-gradient(1100px 480px at 50% -60px, rgba(10, 107, 107, 0.06), transparent 62%),
     linear-gradient(180deg, #fbfbfd 0%, var(--ct-bg) 46%);
 }
 
@@ -649,8 +650,8 @@
 .map-fab:focus-visible {
   opacity: 1;
   transform: scale(1);
-  background: #0077ed;
-  border-color: #0077ed;
+  background: var(--ct-accent-hover);
+  border-color: var(--ct-accent-hover);
   color: #fbfbfd;
   box-shadow: var(--ct-shadow-md);
 }
@@ -1255,24 +1256,24 @@
 }
 
 .map-group-start {
-  border-left: 2px solid var(--ct-group-accent, #0071e3) !important;
+  border-left: 2px solid var(--ct-group-accent, #0A6B6B) !important;
   box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.35);
 }
 
 .map-group-end {
-  border-right: 2px solid var(--ct-group-accent, #0071e3) !important;
+  border-right: 2px solid var(--ct-group-accent, #0A6B6B) !important;
 }
 
 .map-group-mid {
-  border-left-color: color-mix(in srgb, var(--ct-group-accent, #0071e3) 35%, var(--ct-border));
-  border-right-color: color-mix(in srgb, var(--ct-group-accent, #0071e3) 35%, var(--ct-border));
+  border-left-color: color-mix(in srgb, var(--ct-group-accent, #0A6B6B) 35%, var(--ct-border));
+  border-right-color: color-mix(in srgb, var(--ct-group-accent, #0A6B6B) 35%, var(--ct-border));
 }
 
 .map-group--0 {
-  --ct-group-accent: #0071e3;
-  --ct-group-bg: #eaf2fc;
-  --ct-group-bg-support: #e4eef9;
-  --ct-group-chip: #0062c4;
+  --ct-group-accent: #0A6B6B;
+  --ct-group-bg: #E6F3F3;
+  --ct-group-bg-support: #d9ecec;
+  --ct-group-chip: #085858;
 }
 
 .map-group--1 {
@@ -1283,10 +1284,10 @@
 }
 
 .map-group--2 {
-  --ct-group-accent: #0071e3;
-  --ct-group-bg: #f3f7fb;
-  --ct-group-bg-support: #eaf2fc;
-  --ct-group-chip: #0062c4;
+  --ct-group-accent: #0A6B6B;
+  --ct-group-bg: #F0F5F5;
+  --ct-group-bg-support: #E6F3F3;
+  --ct-group-chip: #085858;
 }
 
 .map-group--3 {
@@ -1730,7 +1731,7 @@ tr[data-row].drag-over td {
 }
 
 .map-summary-table .map-summary-role--teaching th {
-  color: #0062c4;
+  color: #085858;
   background: var(--ct-accent-soft);
 }
 
@@ -1852,7 +1853,7 @@ tr[data-row].drag-over td {
   border: 1px solid var(--ct-border);
   border-radius: var(--ct-radius-lg);
   background:
-    linear-gradient(180deg, rgba(0, 113, 227, 0.03), transparent 42%),
+    linear-gradient(180deg, rgba(10, 107, 107, 0.03), transparent 42%),
     var(--ct-surface);
   overflow: visible;
 }
@@ -1896,14 +1897,14 @@ tr[data-row].drag-over td {
   align-items: stretch;
   min-width: 12px;
   border-radius: 10px;
-  border: 1px solid rgba(0, 113, 227, 0.16);
+  border: 1px solid rgba(10, 107, 107, 0.16);
   background: var(--ct-accent-soft);
   box-sizing: border-box;
 }
 
 .schedule-timeline-slot.is-period:hover,
 .schedule-timeline-slot.is-resizing {
-  border-color: rgba(0, 113, 227, 0.35);
+  border-color: rgba(10, 107, 107, 0.35);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
