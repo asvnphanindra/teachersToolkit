@@ -24,6 +24,7 @@ export const STAGES = [
 
 export const VIEW_TO_STAGE = {
   intro: null,
+  start: null,
   mapping: "plan",
   summary: "plan",
   timingSetup: "plan",
