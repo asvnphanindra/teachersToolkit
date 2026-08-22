@@ -82,7 +82,7 @@ function facultyKey(name) {
 
 /**
  * Flat faculty summary rows: one per non-empty mapping cell assignment.
- * facultyCount = total assignments for that faculty across the full dataset.
+ * facultyCount starts as total assignments for that faculty (used for sort/filter).
  */
 export function facultySummaryRows(project) {
   const mappingColumns = (project.columns || []).filter(isMappingColumn);
@@ -127,16 +127,14 @@ export function facultySummaryRows(project) {
   }));
 }
 
-export function filterFacultySummaryRows(rows, { query = "", typeFilter = "all" } = {}) {
-  const needle = String(query || "").trim().toLowerCase();
-  return rows.filter((row) => {
-    if (typeFilter === "main" && row.typeKey !== "main") return false;
-    if (typeFilter === "support" && row.typeKey !== "support") return false;
-    if (!needle) return true;
-    return [row.section, row.subject, row.faculty]
-      .join(" ")
-      .toLowerCase()
-      .includes(needle);
+/** Running 1..n per faculty in the given row order (display / print). */
+export function withIncrementalFacultyCounts(rows) {
+  const seen = new Map();
+  return rows.map((row) => {
+    const key = row.facultyKey || String(row.faculty || "").trim().toLowerCase();
+    const next = (seen.get(key) || 0) + 1;
+    seen.set(key, next);
+    return { ...row, facultyCount: next };
   });
 }
 
@@ -165,41 +163,42 @@ export function sortFacultySummaryRows(rows, sortKey = "section", sortDir = "asc
   });
 }
 
-/**
- * Unique search suggestions from faculty / subject / section values.
- * Prefers prefix matches, then contains; capped at 8.
- */
-export function summarySearchSuggestions(rows, query = "", limit = 8) {
-  const needle = String(query || "").trim().toLowerCase();
-  if (!needle) return [];
+export function cellFilterValue(row, key) {
+  if (key === "facultyCount") return String(row.facultyCount ?? "");
+  return String(row?.[key] ?? "");
+}
 
+/** AND across columns. `null`/missing filter means all values allowed. */
+export function applyColumnFilters(rows, columnFilters = {}) {
+  return rows.filter((row) => Object.entries(columnFilters).every(([key, allowed]) => {
+    if (!(allowed instanceof Set)) return true;
+    return allowed.has(cellFilterValue(row, key));
+  }));
+}
+
+/** Rows for building a column’s value list (Excel-like: other columns filtered). */
+export function rowsForColumnFilterList(rows, columnFilters, columnKey) {
+  const others = { ...columnFilters, [columnKey]: null };
+  return applyColumnFilters(rows, others);
+}
+
+export function columnFilterValues(rows, key) {
   const seen = new Set();
-  const candidates = [];
-  const push = (value, kind) => {
-    const text = String(value || "").trim();
-    if (!text || text === "—") return;
-    const key = `${kind}:${text.toLowerCase()}`;
-    if (seen.has(key)) return;
-    const lower = text.toLowerCase();
-    if (!lower.includes(needle)) return;
-    seen.add(key);
-    candidates.push({
-      value: text,
-      kind,
-      starts: lower.startsWith(needle),
-    });
-  };
-
+  const values = [];
   rows.forEach((row) => {
-    push(row.faculty, "Faculty");
-    push(row.subject, "Subject");
-    push(row.section, "Section");
+    const value = cellFilterValue(row, key);
+    if (seen.has(value)) return;
+    seen.add(value);
+    values.push(value);
   });
+  return values.sort((a, b) => a.localeCompare(b, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  }));
+}
 
-  candidates.sort((a, b) => {
-    if (a.starts !== b.starts) return a.starts ? -1 : 1;
-    return a.value.localeCompare(b.value, undefined, { numeric: true, sensitivity: "base" });
-  });
-
-  return candidates.slice(0, limit).map(({ value, kind }) => ({ value, kind }));
+export function isColumnFilterActive(columnFilters, key, allValuesForColumn) {
+  const allowed = columnFilters?.[key];
+  if (!(allowed instanceof Set)) return false;
+  return allowed.size < (allValuesForColumn?.length || 0);
 }
