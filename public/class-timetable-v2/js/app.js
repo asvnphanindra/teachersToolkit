@@ -35,10 +35,13 @@ import {
   exportSectionTimetablesPdf,
 } from "./pdf-export.js";
 import {
+  applyColumnFilters,
+  columnFilterValues,
   facultySummaryRows,
-  filterFacultySummaryRows,
+  isColumnFilterActive,
+  rowsForColumnFilterList,
   sortFacultySummaryRows,
-  summarySearchSuggestions,
+  withIncrementalFacultyCounts,
 } from "./summary.js";
 import {
   WEEK_DAYS,
@@ -83,6 +86,7 @@ import {
 const app = document.querySelector("#app");
 let project = ensureActiveProject();
 let view = "start";
+let timetableOpen = false;
 let scheduleRowId = project.rows[0]?.id || null;
 let scheduleDay = "Monday";
 let scheduleViewMode = "all"; // one | some | all
@@ -102,13 +106,17 @@ let colResize = null; // { columnId, startX, startWidth }
 let armedDragRow = null;
 let renameColumnId = null;
 let summaryUi = {
-  draftQuery: "",
-  appliedQuery: "",
-  typeFilter: "all",
   sortKey: "section",
   sortDir: "asc",
-  suggestOpen: false,
-  suggestIndex: -1,
+  openFilter: null,
+  filterDraft: null, // { search, selected: Set }
+  columnFilters: {
+    section: null,
+    subject: null,
+    faculty: null,
+    type: null,
+    facultyCount: null,
+  },
 };
 
 const esc = (value = "") => String(value).replace(/[&<>"']/g, (char) => ({
@@ -136,6 +144,7 @@ const ICON = {
   close: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06Z"/></svg>',
   grip: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5.5 3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm7-9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
   chevron: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4 4a.75.75 0 0 1 0 1.06l-4 4a.75.75 0 1 1-1.06-1.06L9.69 8 6.22 4.53a.75.75 0 0 1 0-1.06Z"/></svg>',
+  filter: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2.5 3.5A.75.75 0 0 1 3.25 2.75h9.5a.75.75 0 0 1 .53 1.28L9.5 8.81v3.44a.75.75 0 0 1-1.12.65l-1.5-.86A.75.75 0 0 1 6.5 11.39V8.81L1.97 4.03a.75.75 0 0 1 .53-1.28Z"/></svg>',
 };
 
 function askName(label, defaultValue = "") {
@@ -183,6 +192,8 @@ function renderStageNav(currentView) {
 function renderMenuBar(currentView) {
   const showEditWeek = currentView === "schedule";
   const showBackMapping = ["summary", "timingSetup", "schedule", "projects"].includes(currentView);
+  const showSummaryPrint = currentView === "summary" && timetableOpen;
+  const showFacultySummary = timetableOpen;
   return `
     <div class="map-menu-bar" role="menubar" aria-label="Application menu">
       <div class="map-menu-wrap ${appMenu === "file" ? "is-open" : ""}">
@@ -192,12 +203,13 @@ function renderMenuBar(currentView) {
           <button type="button" role="menuitem" data-action="open-projects">Open saved projects…</button>
           <button type="button" role="menuitem" data-action="import">Import JSON</button>
           <button type="button" role="menuitem" data-action="export">Export JSON</button>
+          ${showSummaryPrint ? `<button type="button" role="menuitem" data-action="export-summary-pdf">Print faculty summary</button>` : ""}
         </div>
       </div>
       <div class="map-menu-wrap ${appMenu === "view" ? "is-open" : ""}">
         <button type="button" class="map-menu-trigger" data-app-menu="view" aria-haspopup="true" aria-expanded="${appMenu === "view" ? "true" : "false"}">View</button>
         <div class="map-menu-panel" role="menu">
-          <button type="button" role="menuitem" data-action="summary">Faculty summary</button>
+          ${showFacultySummary ? `<button type="button" role="menuitem" data-action="summary">Faculty summary</button>` : ""}
           ${showEditWeek ? `<button type="button" role="menuitem" data-action="edit-timings">Edit week plan</button>` : ""}
           ${showBackMapping ? `<button type="button" role="menuitem" data-action="back-to-mapping">Back to mapping</button>` : ""}
         </div>
@@ -218,7 +230,7 @@ function renderMenuBar(currentView) {
 function renderAppChrome(currentView) {
   return `<header class="map-app-chrome">
     <div class="map-chrome-top">
-      <a href="../index.html" class="map-chrome-back">← Teacher's Toolkit</a>
+      <button type="button" class="map-chrome-back" data-action="back-to-start">← Class Timetable home</button>
     </div>
     <div class="map-chrome-main">
       <label class="map-doc-title-wrap">
@@ -274,7 +286,7 @@ function renderSavedProjectsList() {
     <div class="map-saved-item ${item.id === project.id ? "active" : ""}">
       <button type="button" data-open="${item.id}" aria-current="${item.id === project.id ? "true" : "false"}">
         <strong>${esc(item.name)}</strong>
-        <span>${new Date(item.updatedAt).toLocaleString()}</span>
+        <span>Last modified ${new Date(item.updatedAt).toLocaleString()}</span>
       </button>
       <button type="button" class="map-icon-btn danger" data-delete-saved="${item.id}" title="Delete project" aria-label="Delete ${esc(item.name)}">${ICON.close}</button>
     </div>
@@ -296,6 +308,7 @@ function bindSavedProjects() {
       selected = null;
       closeMenu();
       closeAppMenu();
+      timetableOpen = true;
       view = "mapping";
       render();
     };
@@ -662,7 +675,10 @@ function render() {
                       return `
                       <th data-col="${column.id}" scope="col" class="${stickyClassForColumn(column)} ${groupClasses}" style="width:${column.width || 140}px;${stickyStyle}" ${groupInfo ? `data-group="${esc(groupInfo.groupKey)}"` : ""}>
                         <div class="map-th">
-                          <span class="map-th-title ${editing ? "is-editing" : ""}" ${canRename ? `contenteditable="${editing ? "true" : "false"}" data-rename="${column.id}" role="textbox" aria-label="Rename ${esc(columnHeader(column))}"` : ""}>${esc(displayTitle)}</span>
+                          <div class="map-th-heading">
+                            <span class="map-th-title ${editing ? "is-editing" : ""}" ${canRename ? `contenteditable="${editing ? "true" : "false"}" data-rename="${column.id}" role="textbox" aria-label="Rename ${esc(columnHeader(column))}"` : ""}>${esc(displayTitle)}</span>
+                            ${column.kind === "support" ? `<span class="map-th-role">Supporting staff</span>` : ""}
+                          </div>
                           ${canMenu ? `
                             <button type="button" class="map-th-menu-trigger" data-col-menu="${column.id}" aria-haspopup="menu" aria-label="Column actions for ${esc(displayTitle)}" title="Column actions">${ICON.chevron}</button>
                           ` : ""}
@@ -729,69 +745,13 @@ function render() {
 
 function visibleSummaryRows() {
   const all = facultySummaryRows(project);
-  return sortFacultySummaryRows(
-    filterFacultySummaryRows(all, {
-      query: summaryUi.appliedQuery,
-      typeFilter: summaryUi.typeFilter,
-    }),
+  const filtered = applyColumnFilters(all, summaryUi.columnFilters);
+  const sorted = sortFacultySummaryRows(
+    filtered,
     summaryUi.sortKey,
     summaryUi.sortDir,
   );
-}
-
-function summaryTypeScopedRows() {
-  return filterFacultySummaryRows(facultySummaryRows(project), {
-    query: "",
-    typeFilter: summaryUi.typeFilter,
-  });
-}
-
-function summarySuggestionsList() {
-  if (!summaryUi.suggestOpen) return [];
-  return summarySearchSuggestions(summaryTypeScopedRows(), summaryUi.draftQuery);
-}
-
-function renderSummarySuggestList(suggestions) {
-  if (!suggestions.length) return "";
-  return `
-    <ul class="map-summary-suggest" id="summary-suggest" role="listbox">
-      ${suggestions.map((item, index) => `
-        <li role="presentation">
-          <button type="button" role="option" class="map-summary-suggest-item ${index === summaryUi.suggestIndex ? "is-active" : ""}" data-summary-suggest="${esc(item.value)}" aria-selected="${index === summaryUi.suggestIndex ? "true" : "false"}">
-            <span>${esc(item.value)}</span>
-            <span class="map-summary-suggest-kind">${esc(item.kind)}</span>
-          </button>
-        </li>
-      `).join("")}
-    </ul>
-  `;
-}
-
-function syncSummarySuggestDom() {
-  const wrap = app.querySelector(".map-summary-search");
-  const search = app.querySelector("#summary-search");
-  if (!wrap || !search) return;
-  wrap.querySelector("#summary-suggest")?.remove();
-  const suggestions = summarySuggestionsList();
-  search.setAttribute("aria-expanded", suggestions.length ? "true" : "false");
-  if (!suggestions.length) return;
-  wrap.insertAdjacentHTML("beforeend", renderSummarySuggestList(suggestions));
-  wrap.querySelectorAll("[data-summary-suggest]").forEach((button) => {
-    button.onmousedown = (event) => event.preventDefault();
-    button.onclick = () => applySummarySuggestion(button.dataset.summarySuggest);
-  });
-}
-
-function applySummarySuggestion(value) {
-  summaryUi = {
-    ...summaryUi,
-    draftQuery: value,
-    appliedQuery: value,
-    suggestOpen: false,
-    suggestIndex: -1,
-  };
-  renderSummary();
-  app.querySelector("#summary-search")?.focus();
+  return withIncrementalFacultyCounts(sorted);
 }
 
 function summarySortIndicator(key) {
@@ -799,10 +759,96 @@ function summarySortIndicator(key) {
   return summaryUi.sortDir === "asc" ? " ↑" : " ↓";
 }
 
+function closeSummaryFilter(apply = false) {
+  if (!summaryUi.openFilter) return;
+  if (apply && summaryUi.filterDraft) {
+    const key = summaryUi.openFilter;
+    const allRows = facultySummaryRows(project);
+    const listRows = rowsForColumnFilterList(allRows, summaryUi.columnFilters, key);
+    const allValues = columnFilterValues(listRows, key);
+    const selected = summaryUi.filterDraft.selected;
+    const nextFilters = { ...summaryUi.columnFilters };
+    if (selected.size === 0) {
+      nextFilters[key] = new Set();
+    } else if (selected.size >= allValues.length && allValues.every((value) => selected.has(value))) {
+      nextFilters[key] = null;
+    } else {
+      nextFilters[key] = new Set(selected);
+    }
+    summaryUi = {
+      ...summaryUi,
+      columnFilters: nextFilters,
+      openFilter: null,
+      filterDraft: null,
+    };
+  } else {
+    summaryUi = {
+      ...summaryUi,
+      openFilter: null,
+      filterDraft: null,
+    };
+  }
+}
+
+function openSummaryFilter(key) {
+  if (summaryUi.openFilter === key) {
+    closeSummaryFilter(false);
+    renderSummary();
+    return;
+  }
+  const allRows = facultySummaryRows(project);
+  const listRows = rowsForColumnFilterList(allRows, summaryUi.columnFilters, key);
+  const values = columnFilterValues(listRows, key);
+  const current = summaryUi.columnFilters[key];
+  const selected = current instanceof Set ? new Set(current) : new Set(values);
+  summaryUi = {
+    ...summaryUi,
+    openFilter: key,
+    filterDraft: { search: "", selected },
+  };
+  renderSummary();
+}
+
+function renderSummaryFilterPanel(columnKey, allValues) {
+  if (summaryUi.openFilter !== columnKey || !summaryUi.filterDraft) return "";
+  const needle = summaryUi.filterDraft.search.trim().toLowerCase();
+  const visible = needle
+    ? allValues.filter((value) => value.toLowerCase().includes(needle))
+    : allValues;
+  const selected = summaryUi.filterDraft.selected;
+  const visibleSelected = visible.filter((value) => selected.has(value)).length;
+  const selectAllChecked = visible.length > 0 && visibleSelected === visible.length;
+  const selectAllIndeterminate = visibleSelected > 0 && visibleSelected < visible.length;
+
+  return `
+    <div class="map-summary-filter-panel" data-filter-panel="${columnKey}" role="dialog" aria-label="Filter ${esc(columnKey)}">
+      <label class="map-summary-filter-search">
+        <span class="visually-hidden">Search values</span>
+        <input type="search" id="summary-filter-search" value="${esc(summaryUi.filterDraft.search)}" placeholder="Search" autocomplete="off">
+      </label>
+      <label class="map-summary-filter-option map-summary-filter-select-all">
+        <input type="checkbox" data-filter-select-all ${selectAllChecked ? "checked" : ""} ${selectAllIndeterminate ? "data-indeterminate=\"1\"" : ""}>
+        <span>Select all</span>
+      </label>
+      <div class="map-summary-filter-list" role="group" aria-label="Column values">
+        ${visible.length ? visible.map((value) => `
+          <label class="map-summary-filter-option">
+            <input type="checkbox" data-filter-value="${esc(value)}" ${selected.has(value) ? "checked" : ""}>
+            <span>${esc(value)}</span>
+          </label>
+        `).join("") : `<p class="map-summary-filter-empty">No matching values</p>`}
+      </div>
+      <div class="map-summary-filter-actions">
+        <button type="button" class="btn btn--primary btn--sm" data-filter-ok>OK</button>
+        <button type="button" class="btn btn--secondary btn--sm" data-filter-cancel>Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderSummary() {
   const allRows = facultySummaryRows(project);
   const rows = visibleSummaryRows();
-  const suggestions = summarySuggestionsList();
   const columns = [
     { key: "section", label: "Section" },
     { key: "subject", label: "Subject" },
@@ -820,44 +866,33 @@ function renderSummary() {
           <div class="map-summary-intro">
             <div>
               <h2>Faculty summary</h2>
-              <p>One row per section–subject staff assignment. Cumulative number is how many assignments that faculty has in total.</p>
+              <p>One row per section–subject staff assignment. Cumulative number is how many assignments that faculty has in total. Use column filters in the header to narrow the list.</p>
             </div>
-            <span>${allRows.length} assignment${allRows.length === 1 ? "" : "s"}</span>
+            <span>${rows.length} of ${allRows.length} assignment${allRows.length === 1 ? "" : "s"}</span>
           </div>
 
           ${allRows.length ? `
-            <div class="map-summary-toolbar">
-              <div class="map-summary-search">
-                <label for="summary-search">
-                  <span class="visually-hidden">Search faculty, subject, or section</span>
-                </label>
-                <input type="search" id="summary-search" value="${esc(summaryUi.draftQuery)}" placeholder="Search faculty, subject, or section" autocomplete="off" aria-autocomplete="list" aria-controls="summary-suggest" aria-expanded="${suggestions.length ? "true" : "false"}">
-                ${renderSummarySuggestList(suggestions)}
-              </div>
-              <label class="map-summary-filter">
-                <span class="visually-hidden">Filter by type</span>
-                <select id="summary-type-filter" aria-label="Filter by type">
-                  <option value="all" ${summaryUi.typeFilter === "all" ? "selected" : ""}>All types</option>
-                  <option value="main" ${summaryUi.typeFilter === "main" ? "selected" : ""}>Main faculty</option>
-                  <option value="support" ${summaryUi.typeFilter === "support" ? "selected" : ""}>Supporting</option>
-                </select>
-              </label>
-              <button type="button" class="btn btn--secondary btn--sm" data-action="export-summary-pdf">Print</button>
-            </div>
-
             <section class="map-summary-card map-summary-card--flat">
               ${rows.length ? `
                 <div class="map-summary-table-wrap">
                   <table class="map-summary-table map-summary-table--flat">
                     <thead>
                       <tr>
-                        ${columns.map((column) => `
-                          <th scope="col">
-                            <button type="button" class="map-summary-sort ${summaryUi.sortKey === column.key ? "is-active" : ""}" data-summary-sort="${column.key}" aria-label="Sort by ${esc(column.label)}">
-                              ${esc(column.label)}${summarySortIndicator(column.key)}
-                            </button>
-                          </th>
-                        `).join("")}
+                        ${columns.map((column) => {
+                          const listRows = rowsForColumnFilterList(allRows, summaryUi.columnFilters, column.key);
+                          const values = columnFilterValues(listRows, column.key);
+                          const active = isColumnFilterActive(summaryUi.columnFilters, column.key, values);
+                          return `
+                          <th scope="col" class="map-summary-th ${summaryUi.openFilter === column.key ? "is-filter-open" : ""}">
+                            <div class="map-summary-th-inner">
+                              <button type="button" class="map-summary-sort ${summaryUi.sortKey === column.key ? "is-active" : ""}" data-summary-sort="${column.key}" aria-label="Sort by ${esc(column.label)}">
+                                ${esc(column.label)}${summarySortIndicator(column.key)}
+                              </button>
+                              <button type="button" class="map-summary-filter-btn ${active ? "is-active" : ""}" data-summary-filter="${column.key}" aria-label="Filter ${esc(column.label)}" aria-expanded="${summaryUi.openFilter === column.key ? "true" : "false"}" title="Filter">${ICON.filter}</button>
+                            </div>
+                            ${renderSummaryFilterPanel(column.key, values)}
+                          </th>`;
+                        }).join("")}
                       </tr>
                     </thead>
                     <tbody>
@@ -873,7 +908,7 @@ function renderSummary() {
                     </tbody>
                   </table>
                 </div>
-              ` : `<p class="map-summary-empty">No rows match this search or filter.</p>`}
+              ` : `<p class="map-summary-empty">No rows match the current column filters.</p>`}
             </section>
           ` : `<section class="map-summary-empty-state"><h2>No staff assignments yet</h2><p>Add subjects or labs and fill staff names in the mapping grid to build this summary.</p><button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to mapping</button></section>`}
         </main>
@@ -888,99 +923,10 @@ function renderSummary() {
     button.onclick = () => runAction(button.dataset.action);
   });
 
-  const search = app.querySelector("#summary-search");
-  if (search) {
-    search.addEventListener("input", () => {
-      const value = search.value;
-      const cleared = !value.trim();
-      const hadFilter = Boolean(summaryUi.appliedQuery);
-      summaryUi = {
-        ...summaryUi,
-        draftQuery: value,
-        appliedQuery: cleared ? "" : summaryUi.appliedQuery,
-        suggestOpen: !cleared,
-        suggestIndex: -1,
-      };
-      if (cleared) {
-        if (hadFilter) {
-          renderSummary();
-          app.querySelector("#summary-search")?.focus();
-        } else {
-          syncSummarySuggestDom();
-        }
-        return;
-      }
-      syncSummarySuggestDom();
-    });
-
-    search.addEventListener("keydown", (event) => {
-      const list = summarySuggestionsList();
-      if (event.key === "ArrowDown" && list.length) {
-        event.preventDefault();
-        summaryUi = {
-          ...summaryUi,
-          suggestOpen: true,
-          suggestIndex: Math.min(list.length - 1, summaryUi.suggestIndex + 1),
-        };
-        syncSummarySuggestDom();
-        return;
-      }
-      if (event.key === "ArrowUp" && list.length) {
-        event.preventDefault();
-        summaryUi = {
-          ...summaryUi,
-          suggestOpen: true,
-          suggestIndex: Math.max(0, summaryUi.suggestIndex <= 0 ? 0 : summaryUi.suggestIndex - 1),
-        };
-        syncSummarySuggestDom();
-        return;
-      }
-      if (event.key === "Enter") {
-        if (summaryUi.suggestOpen && summaryUi.suggestIndex >= 0 && list[summaryUi.suggestIndex]) {
-          event.preventDefault();
-          applySummarySuggestion(list[summaryUi.suggestIndex].value);
-        } else {
-          // Do not apply free-typed text — only chosen suggestions filter the table
-          event.preventDefault();
-        }
-        return;
-      }
-      if (event.key === "Escape") {
-        summaryUi = { ...summaryUi, suggestOpen: false, suggestIndex: -1 };
-        syncSummarySuggestDom();
-      }
-    });
-
-    search.addEventListener("blur", () => {
-      setTimeout(() => {
-        if (!summaryUi.suggestOpen) return;
-        summaryUi = { ...summaryUi, suggestOpen: false, suggestIndex: -1 };
-        syncSummarySuggestDom();
-      }, 150);
-    });
-  }
-
-  app.querySelectorAll("[data-summary-suggest]").forEach((button) => {
-    button.onmousedown = (event) => event.preventDefault();
-    button.onclick = () => applySummarySuggestion(button.dataset.summarySuggest);
-  });
-
-  const typeFilter = app.querySelector("#summary-type-filter");
-  if (typeFilter) {
-    typeFilter.onchange = () => {
-      summaryUi = {
-        ...summaryUi,
-        typeFilter: typeFilter.value,
-        suggestOpen: false,
-        suggestIndex: -1,
-      };
-      renderSummary();
-    };
-  }
-
   app.querySelectorAll("[data-summary-sort]").forEach((button) => {
     button.onclick = () => {
       const key = button.dataset.summarySort;
+      if (summaryUi.openFilter) closeSummaryFilter(false);
       if (summaryUi.sortKey === key) {
         summaryUi = {
           ...summaryUi,
@@ -992,6 +938,116 @@ function renderSummary() {
       renderSummary();
     };
   });
+
+  app.querySelectorAll("[data-summary-filter]").forEach((button) => {
+    button.onclick = (event) => {
+      event.stopPropagation();
+      openSummaryFilter(button.dataset.summaryFilter);
+    };
+  });
+
+  const panel = app.querySelector("[data-filter-panel]");
+  if (panel) {
+    const search = panel.querySelector("#summary-filter-search");
+    if (search) {
+      search.focus();
+      const end = search.value.length;
+      try {
+        search.setSelectionRange(end, end);
+      } catch {
+        /* ignore */
+      }
+      search.addEventListener("input", () => {
+        if (!summaryUi.filterDraft) return;
+        summaryUi = {
+          ...summaryUi,
+          filterDraft: {
+            ...summaryUi.filterDraft,
+            search: search.value,
+            selected: summaryUi.filterDraft.selected,
+          },
+        };
+        renderSummary();
+      });
+    }
+
+    const selectAll = panel.querySelector("[data-filter-select-all]");
+    if (selectAll) {
+      if (selectAll.hasAttribute("data-indeterminate")) {
+        selectAll.indeterminate = true;
+      }
+      selectAll.addEventListener("change", () => {
+        if (!summaryUi.filterDraft || !summaryUi.openFilter) return;
+        const key = summaryUi.openFilter;
+        const listRows = rowsForColumnFilterList(facultySummaryRows(project), summaryUi.columnFilters, key);
+        const allValues = columnFilterValues(listRows, key);
+        const needle = summaryUi.filterDraft.search.trim().toLowerCase();
+        const visible = needle
+          ? allValues.filter((value) => value.toLowerCase().includes(needle))
+          : allValues;
+        const next = new Set(summaryUi.filterDraft.selected);
+        if (selectAll.checked) {
+          visible.forEach((value) => next.add(value));
+        } else {
+          visible.forEach((value) => next.delete(value));
+        }
+        summaryUi = {
+          ...summaryUi,
+          filterDraft: { ...summaryUi.filterDraft, selected: next },
+        };
+        renderSummary();
+      });
+    }
+
+    panel.querySelectorAll("[data-filter-value]").forEach((input) => {
+      input.addEventListener("change", () => {
+        if (!summaryUi.filterDraft) return;
+        const value = input.dataset.filterValue;
+        const next = new Set(summaryUi.filterDraft.selected);
+        if (input.checked) next.add(value);
+        else next.delete(value);
+        summaryUi = {
+          ...summaryUi,
+          filterDraft: { ...summaryUi.filterDraft, selected: next },
+        };
+        renderSummary();
+      });
+    });
+
+    panel.querySelector("[data-filter-ok]")?.addEventListener("click", () => {
+      closeSummaryFilter(true);
+      renderSummary();
+    });
+    panel.querySelector("[data-filter-cancel]")?.addEventListener("click", () => {
+      closeSummaryFilter(false);
+      renderSummary();
+    });
+
+    panel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSummaryFilter(false);
+        renderSummary();
+      }
+    });
+
+    const onDocPointer = (event) => {
+      if (!summaryUi.openFilter) {
+        document.removeEventListener("mousedown", onDocPointer, true);
+        return;
+      }
+      const openTh = app.querySelector("th.is-filter-open");
+      if (openTh && openTh.contains(event.target)) return;
+      closeSummaryFilter(false);
+      document.removeEventListener("mousedown", onDocPointer, true);
+      renderSummary();
+    };
+    if (window.__summaryFilterDocClose) {
+      document.removeEventListener("mousedown", window.__summaryFilterDocClose, true);
+    }
+    window.__summaryFilterDocClose = onDocPointer;
+    document.addEventListener("mousedown", onDocPointer, true);
+  }
 }
 
 function timelineLegendItem(row) {
@@ -1819,6 +1875,7 @@ function handleScheduleDrop(cell, event) {
 
 function dismissIntro() {
   markIntroSeen();
+  timetableOpen = true;
   view = "mapping";
   render();
 }
@@ -1827,6 +1884,9 @@ function renderStart() {
   app.innerHTML = `
     <div class="map-page">
       <div class="map-shell">
+        <div class="map-start-top">
+          <a href="../index.html" class="map-chrome-back">← Teacher's Toolkit home</a>
+        </div>
         <section class="map-intro map-start" aria-labelledby="start-heading">
           <p class="map-intro-eyebrow">Class Timetable</p>
           <h1 id="start-heading">Plan your week</h1>
@@ -1886,7 +1946,6 @@ function renderProjects() {
           <div class="map-saved-list">
             ${renderSavedProjectsList()}
           </div>
-          <button type="button" class="btn btn--secondary btn--sm" data-action="back-to-mapping">Back to timetable</button>
         </main>
         ${renderFooter("projects")}
       </div>
@@ -2012,8 +2071,10 @@ function bindImportInput() {
       selected = null;
       closeMenu();
       closeAppMenu();
+      timetableOpen = true;
       save();
       toast(`Imported “${project.name}”.`);
+      view = "mapping";
       render();
     } catch (error) {
       toast(error.message || "Import failed.", "error");
@@ -2289,6 +2350,7 @@ function runAction(name) {
     scheduleRowId = project.rows[0]?.id || null;
     selected = null;
     closeMenu();
+    timetableOpen = true;
     view = "mapping";
     render();
     return;
@@ -2302,6 +2364,15 @@ function runAction(name) {
   }
   if (name === "back-to-mapping") {
     view = "mapping";
+    render();
+    return;
+  }
+  if (name === "back-to-start") {
+    selected = null;
+    closeMenu();
+    closeAppMenu();
+    timetableOpen = false;
+    view = "start";
     render();
     return;
   }
@@ -2340,6 +2411,7 @@ function runAction(name) {
     scheduleRowId = project.rows[0]?.id || null;
     selected = null;
     closeMenu();
+    timetableOpen = true;
     save();
     toast("Test mapping loaded.");
     render();
@@ -2378,7 +2450,9 @@ function runAction(name) {
   }
   if (name === "export-summary-pdf") {
     try {
-      const rows = view === "summary" ? visibleSummaryRows() : facultySummaryRows(project);
+      const rows = view === "summary"
+        ? visibleSummaryRows()
+        : withIncrementalFacultyCounts(sortFacultySummaryRows(facultySummaryRows(project), "section", "asc"));
       const filename = exportFacultySummaryPdf(project, rows);
       toast(`Print dialog opened for ${filename}.`);
     } catch (error) {
@@ -2386,6 +2460,10 @@ function runAction(name) {
     }
   }
   if (name === "summary") {
+    if (!timetableOpen) {
+      toast("Open or create a timetable before viewing faculty summary.", "error");
+      return;
+    }
     selected = null;
     closeMenu();
     view = "summary";
@@ -2413,6 +2491,7 @@ function runAction(name) {
     save();
     scheduleRowId = project.rows[0]?.id || null;
     selected = null;
+    timetableOpen = true;
     view = "mapping";
     render();
   }

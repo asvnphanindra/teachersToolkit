@@ -1,5 +1,5 @@
 import { columnHeader } from "./models.js";
-import { facultySummaryRows } from "./summary.js";
+import { facultySummaryRows, sortFacultySummaryRows, withIncrementalFacultyCounts } from "./summary.js";
 import {
   facultyTimetables,
   getSlot,
@@ -254,7 +254,9 @@ export function exportFacultyTimetablesPdf(project, options = {}) {
 }
 
 export function exportFacultySummaryPdf(project, rows = null) {
-  const list = Array.isArray(rows) ? rows : facultySummaryRows(project);
+  const list = Array.isArray(rows)
+    ? rows
+    : withIncrementalFacultyCounts(sortFacultySummaryRows(facultySummaryRows(project), "section", "asc"));
   if (!list.length) throw new Error("Add staff assignments before exporting the faculty summary.");
   const { filename, exportedAt } = exportMeta(project, "faculty-summary");
   const body = `
